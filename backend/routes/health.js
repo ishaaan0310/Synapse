@@ -4,9 +4,7 @@ const router = express.Router();
 const HealthMetric = require('../models/HealthMetrics');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// ===============================
 // SAVE HEALTH METRIC
-// ===============================
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const {
@@ -35,43 +33,46 @@ router.post('/', authMiddleware, async (req, res) => {
 
     await metric.save();
 
-    res.status(201).json({
-      message: 'Health metric logged!',
+    return res.status(201).json({
+      success: true,
+      message: 'Health metric logged successfully',
       metric
     });
-  } catch (error) {
-    console.error('Health save error:', error);
 
-    res.status(500).json({
-      message: 'Failed to save health metric',
-      error: error.message
+  } catch (error) {
+    console.error('Health Save Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to save health metric'
     });
   }
 });
 
-// ===============================
 // GET MY HEALTH LOGS
-// ===============================
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const metrics = await HealthMetric
       .find({ user: req.userId })
       .sort({ date: -1 });
 
-    res.json(metrics);
-  } catch (error) {
-    console.error('Health fetch error:', error);
+    return res.status(200).json({
+      success: true,
+      count: metrics.length,
+      metrics
+    });
 
-    res.status(500).json({
-      message: 'Failed to fetch health logs',
-      error: error.message
+  } catch (error) {
+    console.error('Health Fetch Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch health logs'
     });
   }
 });
 
-// ===============================
 // HEALTH ALERTS
-// ===============================
 router.get('/alerts', authMiddleware, async (req, res) => {
   try {
     const latest = await HealthMetric
@@ -82,25 +83,38 @@ router.get('/alerts', authMiddleware, async (req, res) => {
 
     if (latest) {
       if (latest.sleepHours && latest.sleepHours < 6) {
-        alerts.push('Your sleep duration is below 6 hours.');
+        alerts.push({
+          type: 'warning',
+          message: 'Your sleep duration is below 6 hours.'
+        });
       }
 
       if (latest.steps && latest.steps < 5000) {
-        alerts.push('Your daily steps are below 5,000.');
+        alerts.push({
+          type: 'warning',
+          message: 'Your daily steps are below 5,000.'
+        });
       }
 
       if (latest.waterIntake && latest.waterIntake < 2) {
-        alerts.push('Your water intake is below 2 liters.');
+        alerts.push({
+          type: 'info',
+          message: 'Your water intake is below 2 liters.'
+        });
       }
     }
 
-    res.json({ alerts });
-  } catch (error) {
-    console.error('Health alerts error:', error);
+    return res.status(200).json({
+      success: true,
+      alerts
+    });
 
-    res.status(500).json({
-      message: 'Failed to fetch health alerts',
-      error: error.message
+  } catch (error) {
+    console.error('Health Alerts Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch health alerts'
     });
   }
 });
