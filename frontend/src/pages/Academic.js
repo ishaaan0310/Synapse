@@ -89,18 +89,37 @@ function Academic() {
     }
   };
 
+  const completedGoals = goals.filter(g => g.status === 'completed' || g.progress === 100).length;
+  const pendingGoals = goals.length - completedGoals;
+
   return (
     <div className="page" style={{ maxWidth: '1000px', margin: '0 auto', padding: '2rem', fontFamily: '"Inter", system-ui, sans-serif' }}>
 
       {/* Header Section */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div>
           <h2 style={{ fontSize: '2.25rem', fontWeight: '800', color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Academic Goals</h2>
           <p style={{ color: '#64748b', margin: '0.5rem 0 0 0', fontSize: '0.95rem' }}>Track and manage your coursework and milestones.</p>
         </div>
         <div style={{ background: '#fef2f2', color: '#ef4444', padding: '0.5rem 1.25rem', borderRadius: '9999px', fontWeight: '600', fontSize: '0.875rem', boxShadow: '0 2px 10px rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ display: 'block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }}></span>
+          <span style={{ display: 'block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444', animation: 'fadeIn 1s infinite alternate' }}></span>
           At Risk: {atRisk}
+        </div>
+      </div>
+
+      {/* Academic Statistics */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2.5rem' }}>
+        <div className="card" style={{ padding: '1.5rem', background: '#fff', borderRadius: '12px', borderLeft: '4px solid #3b82f6' }}>
+          <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', fontWeight: '600', textTransform: 'uppercase' }}>Total Goals</p>
+          <h3 style={{ margin: '0.5rem 0 0 0', fontSize: '2rem', color: '#3b82f6' }}>{goals.length}</h3>
+        </div>
+        <div className="card" style={{ padding: '1.5rem', background: '#fff', borderRadius: '12px', borderLeft: '4px solid #10b981' }}>
+          <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', fontWeight: '600', textTransform: 'uppercase' }}>Completed</p>
+          <h3 style={{ margin: '0.5rem 0 0 0', fontSize: '2rem', color: '#10b981' }}>{completedGoals}</h3>
+        </div>
+        <div className="card" style={{ padding: '1.5rem', background: '#fff', borderRadius: '12px', borderLeft: '4px solid #f59e0b' }}>
+          <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', fontWeight: '600', textTransform: 'uppercase' }}>Pending</p>
+          <h3 style={{ margin: '0.5rem 0 0 0', fontSize: '2rem', color: '#f59e0b' }}>{pendingGoals}</h3>
         </div>
       </div>
 
@@ -131,9 +150,9 @@ function Academic() {
           </div>
 
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#475569', marginBottom: '0.5rem' }}>Description</label>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#475569', marginBottom: '0.5rem' }}>Target & Description</label>
             <textarea
-              placeholder="Brief details about your goal..."
+              placeholder="Enter your target marks or brief details about this goal..."
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows="3"
@@ -190,7 +209,7 @@ function Academic() {
               onMouseEnter={(e) => { if (!saving) e.currentTarget.style.transform = 'translateY(-2px)'; }}
               onMouseLeave={(e) => { if (!saving) e.currentTarget.style.transform = 'translateY(0)'; }}
             >
-              {saving ? 'Creating...' : '+ Create Goal'}
+              {saving ? 'Saving...' : '+ Save Goal'}
             </button>
           </div>
         </form>
@@ -198,10 +217,11 @@ function Academic() {
 
       {/* Goals Display Section */}
       <div>
-        <h3 style={{ fontSize: '1.75rem', color: '#0f172a', marginBottom: '2rem', fontWeight: '700' }}>Your Goals</h3>
+        <h3 style={{ fontSize: '1.75rem', color: '#0f172a', marginBottom: '2rem', fontWeight: '700' }}>Your Pending & Completed Goals</h3>
 
         {loading ? (
           <div className="loading" style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
+            <div className="spinner"></div>
             <p style={{ fontSize: '1.1rem' }}>Loading academic goals...</p>
           </div>
         ) : goals.length === 0 ? (
@@ -214,22 +234,22 @@ function Academic() {
             {goals.map((goal) => (
 
               /* Goal Card */
-              <div className="card" key={goal._id} style={{ background: '#ffffff', padding: '1.75rem', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)', border: '1px solid #f1f5f9', borderTop: `5px solid ${goal.priority === 'high' ? '#ef4444' : goal.priority === 'medium' ? '#f59e0b' : '#10b981'}`, display: 'flex', flexDirection: 'column', transition: 'transform 0.2s ease, box-shadow 0.2s ease', cursor: 'default' }}
+              <div className="card" key={goal._id} style={{ background: '#ffffff', padding: '1.75rem', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)', border: '1px solid #f1f5f9', borderTop: `5px solid ${goal.progress === 100 ? '#10b981' : goal.priority === 'high' ? '#ef4444' : goal.priority === 'medium' ? '#f59e0b' : '#3b82f6'}`, display: 'flex', flexDirection: 'column', transition: 'transform 0.2s ease, box-shadow 0.2s ease', cursor: 'default' }}
                 onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.boxShadow = '0 12px 20px -5px rgba(0, 0, 0, 0.08)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05)'; }}>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
-                  <h3 style={{ fontSize: '1.25rem', color: '#0f172a', margin: 0, fontWeight: '700', lineHeight: 1.3 }}>{goal.title}</h3>
-                  <span style={{ fontSize: '0.7rem', fontWeight: '700', padding: '0.25rem 0.6rem', borderRadius: '9999px', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: goal.priority === 'high' ? '#fee2e2' : goal.priority === 'medium' ? '#fef3c7' : '#d1fae5', color: goal.priority === 'high' ? '#b91c1c' : goal.priority === 'medium' ? '#b45309' : '#047857' }}>
+                  <h3 style={{ fontSize: '1.25rem', color: '#0f172a', margin: 0, fontWeight: '700', lineHeight: 1.3, textDecoration: goal.progress === 100 ? 'line-through' : 'none', opacity: goal.progress === 100 ? 0.6 : 1 }}>{goal.title}</h3>
+                  <span style={{ fontSize: '0.7rem', fontWeight: '700', padding: '0.25rem 0.6rem', borderRadius: '9999px', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: goal.priority === 'high' ? '#fee2e2' : goal.priority === 'medium' ? '#fef3c7' : '#e0e7ff', color: goal.priority === 'high' ? '#b91c1c' : goal.priority === 'medium' ? '#b45309' : '#3730a3' }}>
                     {goal.priority}
                   </span>
                 </div>
 
                 {goal.description && (
-                  <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.25rem', flexGrow: 1, lineHeight: 1.5 }}>{goal.description}</p>
+                  <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.25rem', flexGrow: 1, lineHeight: 1.5, opacity: goal.progress === 100 ? 0.6 : 1 }}>{goal.description}</p>
                 )}
 
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem', opacity: goal.progress === 100 ? 0.6 : 1 }}>
                   <span style={{ fontSize: '0.8rem', background: '#f1f5f9', color: '#475569', padding: '0.35rem 0.75rem', borderRadius: '6px', fontWeight: '500' }}>
                     📁 {goal.category.charAt(0).toUpperCase() + goal.category.slice(1)}
                   </span>
@@ -239,10 +259,10 @@ function Academic() {
                 </div>
 
                 {/* Progress Bar Area */}
-                <div style={{ marginTop: 'auto', background: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ marginTop: 'auto', background: goal.progress === 100 ? '#ecfdf5' : '#f8fafc', padding: '1rem', borderRadius: '8px', border: goal.progress === 100 ? '1px solid #a7f3d0' : 'none' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: '600', color: '#334155' }}>
-                    <span>Progress</span>
-                    <span style={{ color: '#3b82f6' }}>{goal.progress}%</span>
+                    <span>{goal.progress === 100 ? '🎉 Completed' : 'Progress'}</span>
+                    <span style={{ color: goal.progress === 100 ? '#059669' : '#3b82f6' }}>{goal.progress}%</span>
                   </div>
                   <input
                     type="range"
@@ -250,7 +270,7 @@ function Academic() {
                     max="100"
                     value={goal.progress}
                     onChange={(e) => updateProgress(goal._id, e.target.value)}
-                    style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
+                    style={{ width: '100%', cursor: 'pointer', accentColor: goal.progress === 100 ? '#10b981' : '#3b82f6' }}
                   />
                 </div>
               </div>
@@ -261,3 +281,4 @@ function Academic() {
 
     </div>
   );
+}
