@@ -117,7 +117,7 @@ function Dashboard() {
           <p className="stat-number" style={{ color: '#48bb78' }}>
             {latestHealth?.sleepHours ? `${latestHealth.sleepHours}h` : '-'}
           </p>
-          <span>{latestHealth?.sleepQuality ? `Quality: ${latestHealth.sleepQuality}` : 'Health Metric Logged'}</span>
+          <span>{latestHealth?.sleepQuality ? `Quality: ${latestHealth.sleepQuality} (${healthLogs} total logs)` : `${healthLogs} Total Health Logs`}</span>
         </div>
 
         <div className="stat-card">
@@ -125,7 +125,7 @@ function Dashboard() {
           <p className="stat-number" style={{ color: '#ed8936' }}>
             {todayNutrition?.totals?.calories || 0}
           </p>
-          <span>/ {todayNutrition?.goals?.calories || 2000} kcal</span>
+          <span>/ {todayNutrition?.goals?.calories || 2000} kcal ({meals} meals total)</span>
         </div>
 
         <div className="stat-card">
