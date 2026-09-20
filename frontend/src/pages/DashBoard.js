@@ -67,30 +67,30 @@ function Dashboard() {
   const { goals, healthLogs, meals, documents, latestHealth, todayNutrition, alerts, recentActivity } = data;
 
   return (
-    <div className="page">
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-        <h2>🧠 Synapse Executive Dashboard</h2>
-        <span style={{ fontSize: '0.9rem', background: '#edf2f7', padding: '0.4rem 0.8rem', borderRadius: '20px', color: '#4a5568', fontWeight: 'bold' }}>
-          Digital Twin Active
+    <div className="page" style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+      
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <div>
+          <h2 style={{ fontSize: '2.25rem', fontWeight: '800', margin: 0 }}>Synapse Dashboard</h2>
+          <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0' }}>Welcome back. Here is your overview.</p>
+        </div>
+        <span style={{ fontSize: '0.85rem', background: '#dcfce7', padding: '0.5rem 1rem', borderRadius: '9999px', color: '#166534', fontWeight: '700' }}>
+          ● Digital Twin Active
         </span>
       </div>
 
       {quickActionMsg && (
-        <div style={{ padding: '0.75rem 1rem', background: '#e6fffa', color: '#234e52', borderRadius: '8px', marginBottom: '1.25rem', fontWeight: 'bold' }}>
+        <div style={{ padding: '1rem', background: '#ecfdf5', borderLeft: '4px solid #10b981', color: '#065f46', borderRadius: '8px', marginBottom: '1.5rem', fontWeight: '600' }}>
           {quickActionMsg}
         </div>
       )}
 
-      {/* ================================
-          LIVE ALERTS BANNER
-      ================================= */}
       {alerts && alerts.length > 0 && (
-        <div className="card" style={{ borderLeft: '5px solid #ed8936', background: '#fffaf0', marginBottom: '1.5rem' }}>
-          <h3 style={{ color: '#c05621', marginTop: 0 }}>🚨 Live Health & Nutrition Warnings</h3>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+        <div className="card" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb', marginBottom: '2rem' }}>
+          <h3 style={{ color: '#b45309', margin: '0 0 1rem 0' }}>🚨 Active Alerts</h3>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {alerts.map((a, idx) => (
-              <div key={idx} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', background: '#feebc8', color: '#7b341e', fontSize: '0.85rem', fontWeight: 'bold' }}>
+              <div key={idx} style={{ padding: '0.5rem 1rem', borderRadius: '6px', background: '#fef3c7', color: '#92400e', fontSize: '0.875rem', fontWeight: '600' }}>
                 {a.text}
               </div>
             ))}
@@ -98,123 +98,102 @@ function Dashboard() {
         </div>
       )}
 
-      {/* ================================
-          DIGITAL TWIN SUMMARY METRICS
-      ================================= */}
-      <h3 style={{ marginBottom: '1rem', color: '#2d3748' }}>📊 Digital Twin Overview</h3>
-      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
-
-        <div className="stat-card">
-          <h3>Academic Goals</h3>
-          <p className="stat-number" style={{ color: '#667eea' }}>
-            {goals}
-          </p>
-          <span>Total Goals Tracked</span>
+      <div className="dashboard-container">
+        
+        {/* ROW 1: ACADEMIC | HEALTH | NUTRITION */}
+        <div className="card dashboard-col-1" style={{ borderTop: '4px solid var(--primary)' }}>
+          <h3 style={{ color: 'var(--text-muted)', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Academic Progress</h3>
+          <p style={{ fontSize: '2.5rem', fontWeight: '800', margin: '1rem 0 0.5rem', color: 'var(--primary)' }}>{goals}</p>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontWeight: '500' }}>Active Goals Tracked</span>
         </div>
 
-        <div className="stat-card">
-          <h3>Latest Sleep</h3>
-          <p className="stat-number" style={{ color: '#48bb78' }}>
-            {latestHealth?.sleepHours ? `${latestHealth.sleepHours}h` : '-'}
+        <div className="card dashboard-col-1" style={{ borderTop: '4px solid #10b981' }}>
+          <h3 style={{ color: 'var(--text-muted)', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Health Metrics</h3>
+          <p style={{ fontSize: '2.5rem', fontWeight: '800', margin: '1rem 0 0.5rem', color: '#10b981' }}>
+            {latestHealth?.sleepHours ? `${latestHealth.sleepHours}h` : '0h'}
           </p>
-          <span>{latestHealth?.sleepQuality ? `Quality: ${latestHealth.sleepQuality} (${healthLogs} total logs)` : `${healthLogs} Total Health Logs`}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontWeight: '500' }}>
+            Sleep • {latestHealth?.steps?.toLocaleString() || 0} Steps
+          </span>
         </div>
 
-        <div className="stat-card">
-          <h3>Today's Calories</h3>
-          <p className="stat-number" style={{ color: '#ed8936' }}>
+        <div className="card dashboard-col-1" style={{ borderTop: '4px solid #f59e0b' }}>
+          <h3 style={{ color: 'var(--text-muted)', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nutrition Calories</h3>
+          <p style={{ fontSize: '2.5rem', fontWeight: '800', margin: '1rem 0 0.5rem', color: '#f59e0b' }}>
             {todayNutrition?.totals?.calories || 0}
           </p>
-          <span>/ {todayNutrition?.goals?.calories || 2000} kcal ({meals} meals total)</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontWeight: '500' }}>
+            / {todayNutrition?.goals?.calories || 2000} kcal today
+          </span>
         </div>
 
-        <div className="stat-card">
-          <h3>Vault Documents</h3>
-          <p className="stat-number" style={{ color: '#9f7aea' }}>
-            {documents}
-          </p>
-          <span>Stored Documents</span>
+        {/* ROW 2: GOALS */}
+        <div className="card dashboard-full">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Goals Overview</h3>
+            <Link to="/academic" style={{ textDecoration: 'none' }}>
+              <button className="btn" style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}>Manage Goals</button>
+            </Link>
+          </div>
+          <div style={{ background: 'var(--bg-color)', padding: '2rem', borderRadius: '12px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <p style={{ margin: 0, fontWeight: '500' }}>You have {goals} academic goals currently being tracked by the digital twin.</p>
+          </div>
+        </div>
+
+        {/* ROW 3: RECENT ACTIVITY */}
+        <div className="card dashboard-full">
+          <h3 style={{ margin: '0 0 1.5rem 0', fontSize: '1.25rem' }}>Recent Activity</h3>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+            
+            {/* Health Activity */}
+            <div>
+              <h4 style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Health & Fitness</h4>
+              {recentActivity?.health?.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {recentActivity.health.map(item => (
+                    <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)', padding: '1rem', borderRadius: '8px' }}>
+                      <div>
+                        <strong style={{ display: 'block', color: 'var(--text-main)', marginBottom: '0.25rem' }}>😴 {item.sleepHours || 0} hrs sleep</strong>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🚶 {item.steps?.toLocaleString() || 0} steps</span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                        {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No recent health activity.</p>
+              )}
+            </div>
+
+            {/* Nutrition Activity */}
+            <div>
+              <h4 style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Nutrition & Meals</h4>
+              {recentActivity?.meals?.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {recentActivity.meals.map(item => (
+                    <div key={item._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)', padding: '1rem', borderRadius: '8px' }}>
+                      <div>
+                        <strong style={{ display: 'block', color: 'var(--text-main)', marginBottom: '0.25rem' }}>🍽️ {item.foodName}</strong>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.mealType?.toUpperCase()} • {item.protein || 0}g protein</span>
+                      </div>
+                      <span style={{ fontSize: '0.875rem', color: '#f59e0b', fontWeight: '700' }}>
+                        {item.calories} kcal
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No recent nutrition activity.</p>
+              )}
+            </div>
+
+          </div>
         </div>
 
       </div>
-
-      {/* ================================
-          QUICK ACTIONS CENTER
-      ================================= */}
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3>⚡ Quick Action Shortcuts</h3>
-        <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
-          Perform instant data logging without navigating away.
-        </p>
-
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          <button
-            onClick={handleQuickWaterLog}
-            className="btn"
-            style={{ background: '#3182ce', color: '#fff' }}
-          >
-            💧 Quick Log +500ml Water
-          </button>
-
-          <Link to="/health" style={{ textDecoration: 'none' }}>
-            <button className="btn" style={{ background: '#48bb78', color: '#fff' }}>
-              😴 Log Sleep & Fitness
-            </button>
-          </Link>
-
-          <Link to="/nutrition" style={{ textDecoration: 'none' }}>
-            <button className="btn" style={{ background: '#ed8936', color: '#fff' }}>
-              🍽️ Log Meal & Macros
-            </button>
-          </Link>
-        </div>
-      </div>
-
-      {/* ================================
-          RECENT ACTIVITY STREAM
-      ================================= */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-
-        <div className="card">
-          <h3>❤️ Recent Health Metrics</h3>
-          {recentActivity?.health?.length > 0 ? (
-            recentActivity.health.map(item => (
-              <div key={item._id} style={{ padding: '0.75rem', borderBottom: '1px solid #edf2f7' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <strong>😴 {item.sleepHours || 0} hrs sleep</strong>
-                  <span style={{ color: '#718096' }}>{new Date(item.date).toLocaleDateString('en-IN')}</span>
-                </div>
-                <div style={{ fontSize: '0.8rem', color: '#4a5568', marginTop: '0.2rem' }}>
-                  🚶 {item.steps?.toLocaleString() || 0} steps | ❤️ {item.heartRate || 0} BPM
-                </div>
-              </div>
-            ))
-          ) : (
-            <p style={{ color: '#888' }}>No health metrics logged yet.</p>
-          )}
-        </div>
-
-        <div className="card">
-          <h3>🍎 Recent Meals Logged</h3>
-          {recentActivity?.meals?.length > 0 ? (
-            recentActivity.meals.map(item => (
-              <div key={item._id} style={{ padding: '0.75rem', borderBottom: '1px solid #edf2f7' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <strong>🍽️ {item.foodName}</strong>
-                  <span style={{ color: '#718096' }}>{item.calories} kcal</span>
-                </div>
-                <div style={{ fontSize: '0.8rem', color: '#4a5568', marginTop: '0.2rem' }}>
-                  Category: {item.mealType?.toUpperCase()} | Protein: {item.protein || 0}g
-                </div>
-              </div>
-            ))
-          ) : (
-            <p style={{ color: '#888' }}>No meals logged yet.</p>
-          )}
-        </div>
-
-      </div>
-
     </div>
   );
 }
