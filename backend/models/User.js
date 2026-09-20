@@ -29,17 +29,12 @@ const userSchema = new mongoose.Schema(
       default: ''
     },
 
-    // ==============================
-    // DAILY NUTRITION GOALS
-    // ==============================
-
     nutritionGoals: {
       calories: {
         type: Number,
         default: 2000,
         min: 0
       },
-
       protein: {
         type: Number,
         default: 100,
@@ -47,9 +42,7 @@ const userSchema = new mongoose.Schema(
       }
     }
   },
-  {
-    timestamps: true
-  }
+  { timestamps: true }
 );
 
 module.exports = mongoose.model('User', userSchema);
