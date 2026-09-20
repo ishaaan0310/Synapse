@@ -49,7 +49,6 @@ router.get('/', authMiddleware, async (req, res) => {
         .limit(3)
     ]);
 
-    // Calculate today's nutrition totals
     const todayNutritionTotals = todayMeals.reduce(
       (acc, meal) => {
         acc.calories += meal.calories || 0;
@@ -59,7 +58,6 @@ router.get('/', authMiddleware, async (req, res) => {
       { calories: 0, protein: 0 }
     );
 
-    // Health alerts
     const alerts = [];
 
     if (latestHealth) {
