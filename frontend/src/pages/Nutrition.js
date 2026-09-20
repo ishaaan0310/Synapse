@@ -9,7 +9,8 @@ function Nutrition() {
     calories: '',
     protein: '',
     carbs: '',
-    fat: ''
+    fat: '',
+    imageUrl: ''
   });
 
   const [meals, setMeals] = useState([]);
@@ -31,6 +32,7 @@ function Nutrition() {
     protein: 100
   });
 
+  const [historyTrends, setHistoryTrends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingGoals, setSavingGoals] = useState(false);
@@ -38,7 +40,7 @@ function Nutrition() {
   const [error, setError] = useState('');
 
   // =====================================
-  // FETCH NUTRITION DATA
+  // FETCH NUTRITION DATA & TRENDS
   // =====================================
 
   const fetchMeals = async () => {
@@ -47,13 +49,16 @@ function Nutrition() {
       setLoading(true);
       setError('');
 
-      const response =
-        await api.get('/nutrition/daily');
+      const [dailyRes, trendsRes] = await Promise.all([
+        api.get('/nutrition/daily'),
+        api.get('/nutrition/history-trends')
+      ]);
 
-      setMeals(response.data.meals || []);
+      setMeals(dailyRes.data.meals || []);
+      setHistoryTrends(trendsRes.data || []);
 
       setTotals(
-        response.data.totals || {
+        dailyRes.data.totals || {
           calories: 0,
           protein: 0,
           carbs: 0,
@@ -62,7 +67,7 @@ function Nutrition() {
       );
 
       const currentGoals =
-        response.data.goals || {
+        dailyRes.data.goals || {
           calories: 2000,
           protein: 100
         };
@@ -120,19 +125,13 @@ function Nutrition() {
       setError('');
 
       await api.post('/nutrition', {
-
         mealType: form.mealType,
-
         foodName: form.foodName,
-
         calories: Number(form.calories),
-
         protein: Number(form.protein),
-
         carbs: Number(form.carbs),
-
-        fat: Number(form.fat)
-
+        fat: Number(form.fat),
+        imageUrl: form.imageUrl
       });
 
       setForm({
@@ -141,7 +140,8 @@ function Nutrition() {
         calories: '',
         protein: '',
         carbs: '',
-        fat: ''
+        fat: '',
+        imageUrl: ''
       });
 
       await fetchMeals();
@@ -367,9 +367,38 @@ function Nutrition() {
 
         <h3>📊 Today's Progress</h3>
 
-        {/* CALORIES */}
+        {/* CALORIES REMAINING CALLOUT */}
+        {(() => {
+          const remaining = goals.calories - totals.calories;
+          const isOver = remaining < 0;
+          return (
+            <div style={{
+              padding: '1rem 1.25rem',
+              borderRadius: '10px',
+              background: isOver ? '#fff5f5' : '#f0fff4',
+              border: `1px solid ${isOver ? '#feb2b2' : '#9ae6b4'}`,
+              marginBottom: '1.5rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <strong style={{ color: isOver ? '#c53030' : '#276749', fontSize: '1rem' }}>
+                  {isOver ? '⚠️ Calorie Goal Exceeded' : '⚡ Calories Remaining Today'}
+                </strong>
+                <p style={{ margin: '0.2rem 0 0 0', color: '#4a5568', fontSize: '0.85rem' }}>
+                  {isOver ? `You are ${Math.abs(remaining)} kcal over your daily target` : `You can consume ${remaining} more kcal today`}
+                </p>
+              </div>
+              <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: isOver ? '#e53e3e' : '#38a169' }}>
+                {isOver ? `+${Math.abs(remaining)}` : remaining} <small style={{ fontSize: '0.9rem' }}>kcal</small>
+              </span>
+            </div>
+          );
+        })()}
 
-        <div style={{ marginBottom: '2rem' }}>
+        {/* CALORIES PROGRESS */}
+        <div style={{ marginBottom: '1.5rem' }}>
 
           <div
             style={{
@@ -381,7 +410,7 @@ function Nutrition() {
           >
 
             <strong>
-              🔥 Calories
+              🔥 Calories Progress
             </strong>
 
             <span>
@@ -404,7 +433,7 @@ function Nutrition() {
               style={{
                 width: `${calorieProgress}%`,
                 height: '100%',
-                background: '#667eea',
+                background: totals.calories > goals.calories ? '#e53e3e' : '#667eea',
                 borderRadius: '20px',
                 transition:
                   'width 0.5s ease'
@@ -415,7 +444,8 @@ function Nutrition() {
 
           <p
             style={{
-              marginTop: '0.5rem'
+              marginTop: '0.5rem',
+              fontSize: '0.9rem'
             }}
           >
             {calorieStatus.text}
@@ -423,9 +453,8 @@ function Nutrition() {
 
         </div>
 
-        {/* PROTEIN */}
-
-        <div>
+        {/* PROTEIN PROGRESS */}
+        <div style={{ marginBottom: '1.5rem' }}>
 
           <div
             style={{
@@ -437,7 +466,7 @@ function Nutrition() {
           >
 
             <strong>
-              💪 Protein
+              💪 Protein Progress
             </strong>
 
             <span>
@@ -471,13 +500,42 @@ function Nutrition() {
 
           <p
             style={{
-              marginTop: '0.5rem'
+              marginTop: '0.5rem',
+              fontSize: '0.9rem'
             }}
           >
             {proteinStatus.text}
           </p>
 
         </div>
+
+        {/* MACRO BALANCE BREAKDOWN */}
+        {(() => {
+          const pCal = totals.protein * 4;
+          const cCal = totals.carbs * 4;
+          const fCal = totals.fat * 9;
+          const totalCal = pCal + cCal + fCal || 1;
+
+          const pPct = Math.round((pCal / totalCal) * 100);
+          const cPct = Math.round((cCal / totalCal) * 100);
+          const fPct = Math.round((fCal / totalCal) * 100);
+
+          return (
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #eee' }}>
+              <h4 style={{ margin: '0 0 0.75rem 0', color: '#2d3748' }}>🥗 Macro Calorie Split Ratio</h4>
+              <div style={{ height: '20px', display: 'flex', borderRadius: '10px', overflow: 'hidden', background: '#edf2f7' }}>
+                <div style={{ width: `${pPct}%`, background: '#48bb78', title: `Protein ${pPct}%` }} />
+                <div style={{ width: `${cPct}%`, background: '#4299e1', title: `Carbs ${cPct}%` }} />
+                <div style={{ width: `${fPct}%`, background: '#ed8936', title: `Fat ${fPct}%` }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                <span style={{ color: '#276749', fontWeight: 'bold' }}>💪 Protein: {pPct}%</span>
+                <span style={{ color: '#2b6cb0', fontWeight: 'bold' }}>🍞 Carbs: {cPct}%</span>
+                <span style={{ color: '#c05621', fontWeight: 'bold' }}>🥑 Fat: {fPct}%</span>
+              </div>
+            </div>
+          );
+        })()}
 
       </div>
 
@@ -550,12 +608,23 @@ function Nutrition() {
           />
 
           <input
-            type="number"
-            name="fat"
-            placeholder="Fat (g)"
-            value={form.fat}
+            type="url"
+            name="imageUrl"
+            placeholder="Image URL (optional, e.g. https://...)"
+            value={form.imageUrl}
             onChange={handleChange}
           />
+
+          {form.imageUrl && (
+            <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
+              <img
+                src={form.imageUrl}
+                alt="Meal Preview"
+                style={{ maxHeight: '100px', borderRadius: '8px', border: '1px solid #ccc' }}
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            </div>
+          )}
 
           <button
             type="submit"
@@ -628,6 +697,42 @@ function Nutrition() {
       </div>
 
       {/* =================================
+          7-DAY NUTRITION TRENDS
+      ================================= */}
+      {historyTrends.length > 0 && (
+        <div className="card">
+          <h3>📈 7-Day Nutrition Intake Trends</h3>
+          <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1rem' }}>
+            Daily totals aggregated across your logged meals using MongoDB pipelines.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+            {historyTrends.map((day) => (
+              <div
+                key={day._id}
+                style={{
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0'
+                }}
+              >
+                <strong style={{ display: 'block', fontSize: '0.85rem', color: '#4a5568', marginBottom: '0.4rem' }}>
+                  📅 {day._id}
+                </strong>
+                <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: day.totalCalories > goals.calories ? '#e53e3e' : '#2b6cb0' }}>
+                  {day.totalCalories} <small style={{ fontSize: '0.75rem' }}>kcal</small>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#718096', marginTop: '0.3rem' }}>
+                  💪 {day.totalProtein}g protein | {day.mealCount} meal(s)
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* =================================
           MEALS
       ================================= */}
 
@@ -666,27 +771,39 @@ function Nutrition() {
                   display: 'flex',
                   justifyContent:
                     'space-between',
-                  alignItems: 'center'
+                  alignItems: 'center',
+                  gap: '1rem'
                 }}
               >
 
-                <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  {meal.imageUrl && (
+                    <img
+                      src={meal.imageUrl}
+                      alt={meal.foodName}
+                      style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px' }}
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  )}
 
-                  <strong>
-                    {meal.mealType.toUpperCase()}
-                  </strong>
+                  <div>
 
-                  <h3>
-                    {meal.foodName}
-                  </h3>
+                    <strong style={{ fontSize: '0.8rem', color: '#667eea' }}>
+                      {meal.mealType.toUpperCase()}
+                    </strong>
 
-                  <small>
-                    {formatTime(meal.date)}
-                  </small>
+                    <h3 style={{ margin: '0.2rem 0' }}>
+                      {meal.foodName}
+                    </h3>
 
+                    <small style={{ color: '#888' }}>
+                      {formatTime(meal.date)}
+                    </small>
+
+                  </div>
                 </div>
 
-                <strong>
+                <strong style={{ fontSize: '1.1rem', color: '#2d3748' }}>
                   {meal.calories} kcal
                 </strong>
 
