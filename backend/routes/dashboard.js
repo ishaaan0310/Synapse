@@ -63,30 +63,21 @@ router.get('/', authMiddleware, async (req, res) => {
     const alerts = [];
 
     if (latestHealth) {
-      if (
-        latestHealth.sleepHours &&
-        latestHealth.sleepHours < 6
-      ) {
+      if (latestHealth.sleepHours && latestHealth.sleepHours < 6) {
         alerts.push({
           type: 'warning',
           text: `😴 Sleep (${latestHealth.sleepHours}h) is below 6.0 hours.`
         });
       }
 
-      if (
-        latestHealth.steps &&
-        latestHealth.steps < 5000
-      ) {
+      if (latestHealth.steps && latestHealth.steps < 5000) {
         alerts.push({
           type: 'warning',
           text: `🚶 Steps (${latestHealth.steps.toLocaleString()}) are below 5,000 threshold.`
         });
       }
 
-      if (
-        latestHealth.waterIntake &&
-        latestHealth.waterIntake < 2
-      ) {
+      if (latestHealth.waterIntake && latestHealth.waterIntake < 2) {
         alerts.push({
           type: 'info',
           text: `💧 Water intake (${latestHealth.waterIntake}L) is below 2.0 liters.`
@@ -100,9 +91,7 @@ router.get('/', authMiddleware, async (req, res) => {
       healthLogs: healthLogsCount,
       meals: mealsCount,
       documents: documentsCount,
-
       latestHealth: latestHealth || null,
-
       todayNutrition: {
         totals: todayNutritionTotals,
         goals: user?.nutritionGoals || {
@@ -110,9 +99,7 @@ router.get('/', authMiddleware, async (req, res) => {
           protein: 100
         }
       },
-
       alerts,
-
       recentActivity: {
         health: recentHealthLogs,
         meals: recentMealsList
