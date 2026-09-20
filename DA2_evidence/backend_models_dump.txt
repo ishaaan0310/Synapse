@@ -1,0 +1,196 @@
+﻿--- AcademicGoal.js ---
+const mongoose = require('mongoose');
+
+const milestoneSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  completed: { type: Boolean, default: false },
+  dueDate: Date
+});
+
+const academicGoalSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, required: true },
+  description: String,
+  category: { type: String, enum: ['exam', 'project', 'assignment', 'course'], required: true },
+  deadline: { type: Date, required: true },
+  priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+  progress: { type: Number, default: 0, min: 0, max: 100 },
+  milestones: [milestoneSchema],
+  status: { type: String, enum: ['not-started', 'in-progress', 'completed', 'overdue'], default: 'not-started' },
+  createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('AcademicGoal', academicGoalSchema);
+--- ChatMessage.js ---
+const mongoose = require('mongoose');
+
+const chatMessageSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  role: { type: String, enum: ['user', 'assistant'], required: true },
+  content: { type: String, required: true },
+  module: { type: String, enum: ['health', 'nutrition', 'academic', 'document', 'general'], default: 'general' },
+  timestamp: { type: Date, default: Date.now }
+});
+
+chatMessageSchema.index({ user: 1, timestamp: -1 });
+
+module.exports = mongoose.model('ChatMessage', chatMessageSchema);
+--- DigitalTwinProfile.js ---
+const mongoose = require('mongoose');
+
+const digitalTwinProfileSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  // Aggregated insights
+  healthSummary: {
+    avgSleep: Number,
+    avgSteps: Number,
+    weightTrend: String, // 'increasing', 'decreasing', 'stable'
+    lastUpdated: Date
+  },
+  nutritionSummary: {
+    avgDailyCalories: Number,
+    preferredMeals: [String],
+    dietaryPattern: String
+  },
+  academicSummary: {
+    completedGoals: Number,
+    pendingGoals: Number,
+    avgProgress: Number,
+    riskGoals: [mongoose.Schema.Types.ObjectId] // goals at risk
+  },
+  // AI-generated recommendations
+  recommendations: [{
+    module: String,
+    message: String,
+    priority: { type: String, enum: ['low', 'medium', 'high'] },
+    dismissed: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  lastSynced: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('DigitalTwinProfile', digitalTwinProfileSchema);
+--- Document.js ---
+const mongoose = require('mongoose');
+
+const documentSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, required: true },
+  fileName: String,
+  fileUrl: { type: String, required: true },
+  fileType: { type: String, enum: ['pdf', 'docx', 'jpg', 'png', 'other'] },
+  category: { type: String, enum: ['id', 'certificate', 'medical', 'academic', 'insurance', 'other'] },
+  tags: [String],
+  expiryDate: Date,
+  ocrText: String, // extracted text from OCR
+  metadata: {
+    extractedFields: mongoose.Schema.Types.Mixed // flexible schema for AI-extracted data
+  },
+  uploadedAt: { type: Date, default: Date.now }
+});
+
+// Text index for search
+documentSchema.index({ title: 'text', ocrText: 'text', tags: 'text' });
+
+module.exports = mongoose.model('Document', documentSchema);
+--- HealthMetrics.js ---
+const mongoose = require('mongoose');
+
+const healthMetricSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  date: { type: Date, default: Date.now },
+  weight: Number,
+  height: Number,
+  sleepHours: Number,
+  sleepQuality: { type: String, enum: ['poor', 'fair', 'good', 'excellent'] },
+  steps: Number,
+  heartRate: Number,
+  waterIntake: Number, // in liters
+  source: { type: String, enum: ['manual', 'fitbit', 'healthkit'], default: 'manual' },
+  notes: String
+});
+
+// Index for time-series queries
+healthMetricSchema.index({ user: 1, date: -1 });
+
+module.exports = mongoose.model('HealthMetric', healthMetricSchema);
+--- NutritionLog.js ---
+const mongoose = require('mongoose');
+
+const foodItemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  calories: Number,
+  protein: Number,
+  carbs: Number,
+  fat: Number
+});
+
+const nutritionLogSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  mealType: { type: String, enum: ['breakfast', 'lunch', 'dinner', 'snack'], required: true },
+  foodName: { type: String, required: true },
+  items: [foodItemSchema],
+  calories: Number,
+  protein: Number, // grams
+  carbs: Number,   // grams
+  fat: Number,     // grams
+  imageUrl: String,
+  date: { type: Date, default: Date.now }
+});
+
+nutritionLogSchema.index({ user: 1, date: -1 });
+
+module.exports = mongoose.model('NutritionLog', nutritionLogSchema);
+--- User.js ---
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true
+  },
+
+  email: {
+    type: String,
+    required: true,
+    unique: true
+  },
+
+  password: {
+    type: String,
+    required: true
+  },
+
+  profilePicture: {
+    type: String,
+    default: ''
+  },
+
+  // ==============================
+  // DAILY NUTRITION GOALS
+  // ==============================
+
+  nutritionGoals: {
+    calories: {
+      type: Number,
+      default: 2000
+    },
+
+    protein: {
+      type: Number,
+      default: 100
+    }
+  },
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model('User', userSchema);

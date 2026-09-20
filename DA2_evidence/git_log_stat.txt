@@ -1,0 +1,114 @@
+﻿4a2ce06 Add goal deletion, goal filtering, and quick water log button
+ backend/routes/academic.js      | 23 ++++++++++++++
+ frontend/src/pages/Academic.js  | 66 ++++++++++++++++++++++++++++++++++++-----
+ frontend/src/pages/DashBoard.js |  8 +++++
+ 3 files changed, 89 insertions(+), 8 deletions(-)
+fb66857 Improve responsive dashboard styling
+ frontend/src/App.css   | 43 +++++++++++++++++++++++++++++++++++++++++++
+ frontend/src/index.css | 26 +++++++++++++++++++++++++-
+ 2 files changed, 68 insertions(+), 1 deletion(-)
+96948fb Enhance dashboard statistics
+ frontend/src/pages/DashBoard.js | 207 ++++++++++++++++++----------------------
+ 1 file changed, 93 insertions(+), 114 deletions(-)
+9fb17df Improve academic goals module
+ frontend/src/pages/Academic.js | 51 +++++++++++++++++++++++++++++-------------
+ 1 file changed, 36 insertions(+), 15 deletions(-)
+3a296b8 UI: modernize Academic goals page
+ frontend/src/pages/Academic.js | 296 +++++++++++++++++++----------------------
+ 1 file changed, 134 insertions(+), 162 deletions(-)
+8812b7e Improve health tracking API
+ backend/routes/health.js | 64 +++++++++++++++++++++++++++++-------------------
+ 1 file changed, 39 insertions(+), 25 deletions(-)
+2c70c17 Improve nutrition goals API
+ backend/routes/goals.js | 53 ++++++++++++++++++++++---------------------------
+ 1 file changed, 24 insertions(+), 29 deletions(-)
+54776ec Resolve dashboard API integration
+ backend/routes/dashboard.js | 103 +++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 96 insertions(+), 7 deletions(-)
+1e79989 fix(dashboard) Clean up unused variables and format stat card subtitles
+ backend/server.js               | 4 +++-
+ frontend/src/pages/DashBoard.js | 4 ++--
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+8f8f7ac Improve dashboard summary API
+ backend/routes/dashboard.js | 29 ++++++++++++++---------------
+ 1 file changed, 14 insertions(+), 15 deletions(-)
+b82dbc4 Strengthen user model validation
+ backend/models/User.js | 9 +--------
+ 1 file changed, 1 insertion(+), 8 deletions(-)
+f18afd1 feat(dashboard) Digital Twin command center overview, alerts banner, quick actions & activity feed
+ backend/routes/dashboard.js     |  62 +++++++++--
+ frontend/src/pages/DashBoard.js | 221 ++++++++++++++++++++++++++++++----------
+ 2 files changed, 220 insertions(+), 63 deletions(-)
+26b1e37 feat(nutrition) Historical 7 day Nutrition aggregation pipeline & trends view
+ backend/routes/nutrition.js | 75 ++++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 70 insertions(+), 5 deletions(-)
+860e1ba feat(nutrition) Calories Remaining calculation & Macro Calorie Split Ratio display
+ frontend/src/pages/Nutrition.js | 201 +++++++++++++++++++++++++++++++---------
+ 1 file changed, 159 insertions(+), 42 deletions(-)
+6142b85 feat(nutrition) Multi item subdocuments array & Image preview support
+ backend/models/NutritionLog.js | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+8375644 feat(health) 7 day & 30 day Health trend aggregations pipeline & analytics view
+ backend/routes/health.js | 159 ++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 156 insertions(+), 3 deletions(-)
+9bc31c9 feat(health) Health alerts engine & Wearable Sync integration (Fitbit & Apple HealthKit)
+ frontend/src/pages/Health.js | 360 ++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 306 insertions(+), 54 deletions(-)
+46a0f75 feat(health) Complete schema alignment and expanded form input fields
+ backend/models/HealthMetrics.js | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+22a29ec Improve authentication and JWT security
+ backend/middleware/authMiddleware.js |  53 +++++++++++-
+ backend/models/User.js               |  83 +++++++++---------
+ backend/routes/auth.js               | 160 +++++++++++++++++++++++++++++++----
+ 3 files changed, 235 insertions(+), 61 deletions(-)
+b8aa7aa improved backend server handling and also improved error handling
+ backend/server.js | 87 ++++++++++++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 77 insertions(+), 10 deletions(-)
+b9d29ed Initial Synapse project
+ .gitignore                           |    42 +
+ backend/middleware/authMiddleware.js |    27 +
+ backend/models/AcademicGoal.js       |    22 +
+ backend/models/ChatMessage.js        |    13 +
+ backend/models/DigitalTwinProfile.js |    34 +
+ backend/models/Document.js           |    22 +
+ backend/models/HealthMetrics.js      |    19 +
+ backend/models/NutritionLog.js       |    17 +
+ backend/models/User.js               |    52 +
+ backend/package-lock.json            |  1846 ++++
+ backend/package.json                 |    23 +
+ backend/routes/academic.js           |   127 +
+ backend/routes/auth.js               |    42 +
+ backend/routes/chat.js               |   216 +
+ backend/routes/dashboard.js          |    44 +
+ backend/routes/digitalTwin.js        |    58 +
+ backend/routes/documents.js          |   219 +
+ backend/routes/goals.js              |   100 +
+ backend/routes/health.js             |   108 +
+ backend/routes/nutrition.js          |   141 +
+ backend/server.js                    |    78 +
+ frontend/.gitignore                  |    25 +
+ frontend/README.md                   |    70 +
+ frontend/package-lock.json           | 17453 +++++++++++++++++++++++++++++++++
+ frontend/package.json                |    41 +
+ frontend/public/favicon.ico          |   Bin 0 -> 3870 bytes
+ frontend/public/index.html           |    43 +
+ frontend/public/logo192.png          |   Bin 0 -> 5347 bytes
+ frontend/public/logo512.png          |   Bin 0 -> 9664 bytes
+ frontend/public/manifest.json        |    25 +
+ frontend/public/robots.txt           |     3 +
+ frontend/src/App.css                 |   500 +
+ frontend/src/App.js                  |   105 +
+ frontend/src/context/AuthContext.js  |    83 +
+ frontend/src/index.css               |    13 +
+ frontend/src/index.js                |    12 +
+ frontend/src/pages/Academic.js       |   291 +
+ frontend/src/pages/Chat.js           |   330 +
+ frontend/src/pages/DashBoard.js      |   113 +
+ frontend/src/pages/Document.js       |   456 +
+ frontend/src/pages/Health.js         |   253 +
+ frontend/src/pages/Login.js          |   101 +
+ frontend/src/pages/Nutrition.js      |   733 ++
+ frontend/src/pages/Register.js       |   124 +
+ frontend/src/utils/api.js            |    22 +
+ 45 files changed, 24046 insertions(+)

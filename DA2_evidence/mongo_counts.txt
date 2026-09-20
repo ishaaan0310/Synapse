@@ -1,0 +1,9 @@
+﻿[
+  'academicgoals: 1',
+  'chatmessages: 0',
+  'digitaltwinprofiles: 0',
+  'documents: 0',
+  'healthmetrics: 0',
+  'nutritionlogs: 0',
+  'users: 1'
+]

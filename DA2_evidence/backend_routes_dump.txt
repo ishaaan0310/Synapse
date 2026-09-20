@@ -1,0 +1,1381 @@
+﻿--- academic.js ---
+const express = require('express');
+const router = express.Router();
+
+const AcademicGoal = require('../models/AcademicGoal');
+const authMiddleware = require('../middleware/authMiddleware');
+
+// Create goal
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      category,
+      deadline,
+      priority
+    } = req.body;
+
+    const goal = new AcademicGoal({
+      user: req.userId,
+      title,
+      description,
+      category,
+      deadline,
+      priority
+    });
+
+    await goal.save();
+
+    res.status(201).json(goal);
+
+  } catch (err) {
+    console.error('Create academic goal error:', err);
+
+    res.status(400).json({
+      error: err.message
+    });
+  }
+});
+
+// Get goals for logged-in user
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const goals = await AcademicGoal
+      .find({ user: req.userId })
+      .sort({ deadline: 1 });
+
+    const now = new Date();
+
+    const atRisk = goals.filter(goal => {
+      const daysLeft =
+        (goal.deadline - now) /
+        (1000 * 60 * 60 * 24);
+
+      return (
+        daysLeft < 7 &&
+        daysLeft >= 0 &&
+        goal.progress < 50 &&
+        goal.status !== 'completed'
+      );
+    });
+
+    res.json({
+      goals,
+      atRisk: atRisk.length
+    });
+
+  } catch (err) {
+    console.error('Get academic goals error:', err);
+
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+// Update progress
+router.patch('/:id/progress', authMiddleware, async (req, res) => {
+  try {
+    const { progress } = req.body;
+
+    if (
+      typeof progress !== 'number' ||
+      progress < 0 ||
+      progress > 100
+    ) {
+      return res.status(400).json({
+        error: 'Progress must be between 0 and 100'
+      });
+    }
+
+    const goal = await AcademicGoal.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        user: req.userId
+      },
+      {
+        progress,
+        status:
+          progress === 100
+            ? 'completed'
+            : progress > 0
+              ? 'in-progress'
+              : 'not-started'
+      },
+      {
+        new: true
+      }
+    );
+
+    if (!goal) {
+      return res.status(404).json({
+        error: 'Goal not found'
+      });
+    }
+
+    res.json(goal);
+
+  } catch (err) {
+    console.error('Update academic goal error:', err);
+
+    res.status(400).json({
+      error: err.message
+    });
+  }
+});
+
+// Delete goal
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const goal = await AcademicGoal.findOneAndDelete({
+      _id: req.params.id,
+      user: req.userId
+    });
+
+    if (!goal) {
+      return res.status(404).json({
+        error: 'Goal not found'
+      });
+    }
+
+    res.json({ message: 'Goal deleted successfully' });
+  } catch (err) {
+    console.error('Delete academic goal error:', err);
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+module.exports = router;
+--- auth.js ---
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+// Register
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(400).json({ msg: 'User already exists' });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ name, email, password: hashedPassword });
+    await user.save();
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: user._id, name, email } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Login
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ msg: 'Invalid credentials' });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ msg: 'Invalid credentials' });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: user._id, name: user.name, email } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
+--- chat.js ---
+const express = require('express');
+const router = express.Router();
+
+const ChatMessage = require('../models/ChatMessage');
+const HealthMetric = require('../models/HealthMetrics');
+const NutritionLog = require('../models/NutritionLog');
+const AcademicGoal = require('../models/AcademicGoal');
+
+const authMiddleware = require('../middleware/authMiddleware');
+
+// ==========================================
+// GET CHAT HISTORY
+// ==========================================
+
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const messages = await ChatMessage
+      .find({ user: req.userId })
+      .sort({ timestamp: 1 })
+      .limit(100);
+
+    res.json(messages);
+
+  } catch (error) {
+    console.error('Chat history error:', error);
+
+    res.status(500).json({
+      message: 'Failed to load chat history',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// GENERATE PERSONALIZED RESPONSE
+// ==========================================
+
+async function generateTwinResponse(userId, message) {
+
+  const text = message.toLowerCase();
+
+  // Get user's latest health data
+  const latestHealth = await HealthMetric
+    .findOne({ user: userId })
+    .sort({ date: -1 });
+
+  // Get today's nutrition
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const meals = await NutritionLog.find({
+    user: userId,
+    date: { $gte: startOfDay }
+  });
+
+  const calories = meals.reduce(
+    (sum, meal) => sum + (meal.calories || 0),
+    0
+  );
+
+  // Get academic goals
+  const goals = await AcademicGoal.find({
+    user: userId
+  });
+
+  const pendingGoals = goals.filter(
+    goal => goal.status !== 'completed'
+  );
+
+  // ==========================================
+  // HEALTH
+  // ==========================================
+
+  if (
+    text.includes('sleep') ||
+    text.includes('health') ||
+    text.includes('steps')
+  ) {
+
+    if (!latestHealth) {
+      return 'I do not have enough health data yet. Try logging your sleep, steps, weight and heart rate first.';
+    }
+
+    return `Based on your latest health log, you recorded ${latestHealth.sleepHours || 0} hours of sleep, ${latestHealth.steps || 0} steps, a heart rate of ${latestHealth.heartRate || 0} BPM and a weight of ${latestHealth.weight || 0} kg. ${
+      latestHealth.sleepHours < 6
+        ? 'Your sleep is a little low, so getting more rest would be a good priority.'
+        : 'Your sleep duration looks reasonable.'
+    }`;
+  }
+
+  // ==========================================
+  // NUTRITION
+  // ==========================================
+
+  if (
+    text.includes('food') ||
+    text.includes('meal') ||
+    text.includes('nutrition') ||
+    text.includes('calorie')
+  ) {
+
+    if (meals.length === 0) {
+      return 'You have not logged any meals today. Add your meals in the Nutrition section and I can analyze your daily intake.';
+    }
+
+    return `You have logged ${meals.length} meal(s) today with approximately ${calories} calories. Keep logging your meals so I can identify your nutrition patterns over time.`;
+  }
+
+  // ==========================================
+  // ACADEMIC
+  // ==========================================
+
+  if (
+    text.includes('study') ||
+    text.includes('exam') ||
+    text.includes('assignment') ||
+    text.includes('academic') ||
+    text.includes('goal')
+  ) {
+
+    if (pendingGoals.length === 0) {
+      return 'You currently have no pending academic goals. Nice work! ðŸŽ‰';
+    }
+
+    const highPriority = pendingGoals.filter(
+      goal => goal.priority === 'high'
+    );
+
+    if (highPriority.length > 0) {
+      return `You have ${pendingGoals.length} pending academic goal(s), including ${highPriority.length} high-priority goal(s). I recommend focusing on the highest-priority goal first.`;
+    }
+
+    return `You currently have ${pendingGoals.length} pending academic goal(s). Try completing the one with the nearest deadline first.`;
+  }
+
+  // ==========================================
+  // GENERAL SYNAPSE RESPONSE
+  // ==========================================
+
+  if (
+    text.includes('hello') ||
+    text.includes('hi') ||
+    text.includes('hey')
+  ) {
+    return 'Hey! ðŸ‘‹ I am your Synapse Digital Twin. I can help you understand your health, nutrition and academic progress.';
+  }
+
+  if (
+    text.includes('who are you') ||
+    text.includes('digital twin')
+  ) {
+    return 'I am your Synapse Digital Twin. I use the information you log in Synapse to give you personalized insights and recommendations.';
+  }
+
+  return `I understand you said: "${message}". I can currently analyze your health, nutrition and academic data. Try asking me something like "How is my health?", "How many calories did I eat today?" or "What should I study next?"`;
+}
+
+// ==========================================
+// SEND MESSAGE
+// ==========================================
+
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({
+        message: 'Message cannot be empty'
+      });
+    }
+
+    // Save user message
+    const userMessage = new ChatMessage({
+      user: req.userId,
+      role: 'user',
+      content: content.trim(),
+      module: 'general'
+    });
+
+    await userMessage.save();
+
+    // Generate response
+    const responseText =
+      await generateTwinResponse(
+        req.userId,
+        content.trim()
+      );
+
+    // Save AI response
+    const assistantMessage = new ChatMessage({
+      user: req.userId,
+      role: 'assistant',
+      content: responseText,
+      module: 'general'
+    });
+
+    await assistantMessage.save();
+
+    res.status(201).json({
+      userMessage,
+      assistantMessage
+    });
+
+  } catch (error) {
+
+    console.error('Chat error:', error);
+
+    res.status(500).json({
+      message: 'Failed to process chat',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+--- dashboard.js ---
+const express = require('express');
+const router = express.Router();
+
+const AcademicGoal = require('../models/AcademicGoal');
+const HealthMetric = require('../models/HealthMetrics');
+const NutritionLog = require('../models/NutritionLog');
+const Document = require('../models/Document');
+const User = require('../models/User');
+
+const authMiddleware = require('../middleware/authMiddleware');
+
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const [
+      goals,
+      healthLogsCount,
+      mealsCount,
+      documentsCount,
+      latestHealth,
+      todayMeals,
+      user,
+      recentHealthLogs,
+      recentMealsList
+    ] = await Promise.all([
+      AcademicGoal.countDocuments({ user: userId }),
+      HealthMetric.countDocuments({ user: userId }),
+      NutritionLog.countDocuments({ user: userId }),
+      Document.countDocuments({ user: userId }),
+      HealthMetric.findOne({ user: userId }).sort({ date: -1 }),
+      NutritionLog.find({ user: userId, date: { $gte: startOfDay, $lte: endOfDay } }),
+      User.findById(userId).select('nutritionGoals'),
+      HealthMetric.find({ user: userId }).sort({ date: -1 }).limit(3),
+      NutritionLog.find({ user: userId }).sort({ date: -1 }).limit(3)
+    ]);
+
+    // Calculate today's nutrition totals
+    const todayNutritionTotals = todayMeals.reduce((acc, m) => {
+      acc.calories += m.calories || 0;
+      acc.protein += m.protein || 0;
+      return acc;
+    }, { calories: 0, protein: 0 });
+
+    // Health alerts
+    const alerts = [];
+    if (latestHealth) {
+      if (latestHealth.sleepHours && latestHealth.sleepHours < 6) {
+        alerts.push({ type: 'warning', text: `ðŸ˜´ Sleep (${latestHealth.sleepHours}h) is below 6.0 hours.` });
+      }
+      if (latestHealth.steps && latestHealth.steps < 5000) {
+        alerts.push({ type: 'warning', text: `ðŸš¶ Steps (${latestHealth.steps.toLocaleString()}) are below 5,000 threshold.` });
+      }
+      if (latestHealth.waterIntake && latestHealth.waterIntake < 2) {
+        alerts.push({ type: 'info', text: `ðŸ’§ Water intake (${latestHealth.waterIntake}L) is below 2.0 liters.` });
+      }
+    }
+
+    res.json({
+      goals,
+      healthLogs: healthLogsCount,
+      meals: mealsCount,
+      documents: documentsCount,
+      latestHealth: latestHealth || null,
+      todayNutrition: {
+        totals: todayNutritionTotals,
+        goals: user?.nutritionGoals || { calories: 2000, protein: 100 }
+      },
+      alerts,
+      recentActivity: {
+        health: recentHealthLogs,
+        meals: recentMealsList
+      }
+    });
+
+  } catch (error) {
+    console.error('Dashboard error:', error);
+
+    res.status(500).json({
+      message: 'Failed to load dashboard',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+--- digitalTwin.js ---
+const express = require('express');
+const router = express.Router();
+const DigitalTwinProfile = require('../models/DigitalTwinProfile');
+const HealthMetric = require('../models/HealthMetrics');
+const AcademicGoal = require('../models/AcademicGoal');
+const NutritionLog = require('../models/NutritionLog');
+
+// Get or create digital twin profile
+router.get('/:userId', async (req, res) => {
+  try {
+    let profile = await DigitalTwinProfile.findOne({ user: req.params.userId });
+    
+    if (!profile) {
+      // Calculate aggregates
+      const healthMetrics = await HealthMetric.find({ user: req.params.userId }).sort({ date: -1 }).limit(30);
+      const goals = await AcademicGoal.find({ user: req.params.userId });
+      const nutritionLogs = await NutritionLog.find({ user: req.params.userId }).sort({ date: -1 }).limit(30);
+
+      const avgSleep = healthMetrics.reduce((s, m) => s + (m.sleepHours || 0), 0) / (healthMetrics.length || 1);
+      const avgSteps = healthMetrics.reduce((s, m) => s + (m.steps || 0), 0) / (healthMetrics.length || 1);
+      const avgCalories = nutritionLogs.reduce((s, m) => s + (m.calories || 0), 0) / (nutritionLogs.length || 1);
+      
+      const pendingGoals = goals.filter(g => g.status !== 'completed').length;
+      const riskGoals = goals.filter(g => {
+        const daysLeft = (g.deadline - new Date()) / (1000 * 60 * 60 * 24);
+        return daysLeft < 7 && g.progress < 50;
+      }).map(g => g._id);
+
+      profile = new DigitalTwinProfile({
+        user: req.params.userId,
+        healthSummary: { avgSleep, avgSteps, lastUpdated: new Date() },
+        nutritionSummary: { avgDailyCalories: avgCalories },
+        academicSummary: { 
+          completedGoals: goals.filter(g => g.status === 'completed').length,
+          pendingGoals,
+          avgProgress: goals.reduce((s, g) => s + g.progress, 0) / (goals.length || 1),
+          riskGoals
+        },
+        recommendations: generateRecommendations(avgSleep, pendingGoals, riskGoals)
+      });
+      await profile.save();
+    }
+
+    res.json(profile);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function generateRecommendations(avgSleep, pendingGoals, riskGoals) {
+  const recs = [];
+  if (avgSleep < 6) recs.push({ module: 'health', message: 'Increase sleep to improve focus', priority: 'high' });
+  if (pendingGoals > 5) recs.push({ module: 'academic', message: 'You have many pending goals. Prioritize high-impact tasks.', priority: 'medium' });
+  if (riskGoals.length > 0) recs.push({ module: 'academic', message: `${riskGoals.length} goals are at risk. Review your schedule.`, priority: 'high' });
+  return recs;
+}
+
+module.exports = router;
+--- documents.js ---
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+
+const Document = require('../models/Document');
+const authMiddleware = require('../middleware/authMiddleware');
+
+// ==========================================
+// MULTER STORAGE
+// ==========================================
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+
+  filename: (req, file, cb) => {
+    const uniqueName =
+      Date.now() +
+      '-' +
+      Math.round(Math.random() * 1e9) +
+      path.extname(file.originalname);
+
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  }
+});
+
+// ==========================================
+// HELPER - DETECT FILE TYPE
+// ==========================================
+
+const getFileType = (mimeType) => {
+  if (mimeType === 'application/pdf') {
+    return 'pdf';
+  }
+
+  if (
+    mimeType.includes('word') ||
+    mimeType.includes('officedocument')
+  ) {
+    return 'docx';
+  }
+
+  if (mimeType === 'image/png') {
+    return 'png';
+  }
+
+  if (
+    mimeType === 'image/jpeg' ||
+    mimeType === 'image/jpg'
+  ) {
+    return 'jpg';
+  }
+
+  return 'other';
+};
+
+// ==========================================
+// UPLOAD DOCUMENT
+// ==========================================
+
+router.post(
+  '/upload',
+  authMiddleware,
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          message: 'Please select a file'
+        });
+      }
+
+      const document = new Document({
+        user: req.userId,
+
+        title: req.body.title || req.file.originalname,
+
+        fileName: req.file.originalname,
+
+        fileUrl: `/uploads/${req.file.filename}`,
+
+        fileType: getFileType(req.file.mimetype),
+
+        category: req.body.category || 'other',
+
+        expiryDate: req.body.expiryDate
+          ? new Date(req.body.expiryDate)
+          : undefined,
+
+        tags: req.body.tags
+          ? req.body.tags
+              .split(',')
+              .map(tag => tag.trim())
+              .filter(Boolean)
+          : []
+      });
+
+      await document.save();
+
+      res.status(201).json({
+        message: 'Document uploaded successfully!',
+        document
+      });
+
+    } catch (error) {
+      console.error('Document upload error:', error);
+
+      res.status(500).json({
+        message: 'Failed to upload document',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ==========================================
+// GET ALL MY DOCUMENTS
+// ==========================================
+
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const documents = await Document
+      .find({ user: req.userId })
+      .sort({ uploadedAt: -1 });
+
+    res.json(documents);
+
+  } catch (error) {
+    console.error('Document fetch error:', error);
+
+    res.status(500).json({
+      message: 'Failed to fetch documents',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// SEARCH MY DOCUMENTS
+// ==========================================
+
+router.get('/search', authMiddleware, async (req, res) => {
+  try {
+    const query = req.query.q?.trim();
+
+    if (!query) {
+      const documents = await Document
+        .find({ user: req.userId })
+        .sort({ uploadedAt: -1 });
+
+      return res.json(documents);
+    }
+
+    const documents = await Document.find({
+      user: req.userId,
+      $text: {
+        $search: query
+      }
+    }).sort({ uploadedAt: -1 });
+
+    res.json(documents);
+
+  } catch (error) {
+    console.error('Document search error:', error);
+
+    res.status(500).json({
+      message: 'Failed to search documents',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// EXPIRING DOCUMENTS
+// ==========================================
+
+router.get('/expiry', authMiddleware, async (req, res) => {
+  try {
+    const now = new Date();
+
+    const thirtyDaysFromNow = new Date();
+    thirtyDaysFromNow.setDate(
+      thirtyDaysFromNow.getDate() + 30
+    );
+
+    const documents = await Document.find({
+      user: req.userId,
+
+      expiryDate: {
+        $gte: now,
+        $lte: thirtyDaysFromNow
+      }
+    }).sort({
+      expiryDate: 1
+    });
+
+    res.json(documents);
+
+  } catch (error) {
+    console.error('Expiry error:', error);
+
+    res.status(500).json({
+      message: 'Failed to fetch expiry information',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+--- goals.js ---
+const express = require('express');
+const router = express.Router();
+
+const User = require('../models/User');
+const authMiddleware = require('../middleware/authMiddleware');
+
+// ==========================================
+// GET MY NUTRITION GOALS
+// ==========================================
+
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId)
+      .select('nutritionGoals');
+
+    if (!user) {
+      return res.status(404).json({
+        message: 'User not found'
+      });
+    }
+
+    res.json(
+      user.nutritionGoals || {
+        calories: 2000,
+        protein: 100
+      }
+    );
+
+  } catch (error) {
+    console.error('Get goals error:', error);
+
+    res.status(500).json({
+      message: 'Failed to load goals'
+    });
+  }
+});
+
+// ==========================================
+// UPDATE MY NUTRITION GOALS
+// ==========================================
+
+router.put('/', authMiddleware, async (req, res) => {
+  try {
+    const calories = Number(req.body.calories);
+    const protein = Number(req.body.protein);
+
+    if (
+      !Number.isFinite(calories) ||
+      calories <= 0
+    ) {
+      return res.status(400).json({
+        message: 'Calories must be greater than 0'
+      });
+    }
+
+    if (
+      !Number.isFinite(protein) ||
+      protein <= 0
+    ) {
+      return res.status(400).json({
+        message: 'Protein must be greater than 0'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      {
+        $set: {
+          'nutritionGoals.calories': calories,
+          'nutritionGoals.protein': protein,
+          updatedAt: new Date()
+        }
+      },
+      {
+        new: true
+      }
+    ).select('nutritionGoals');
+
+    if (!user) {
+      return res.status(404).json({
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      message: 'Nutrition goals updated!',
+      goals: user.nutritionGoals
+    });
+
+  } catch (error) {
+    console.error('Update goals error:', error);
+
+    res.status(500).json({
+      message: 'Failed to update goals',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+--- health.js ---
+const express = require('express');
+const router = express.Router();
+const mongoose = require('mongoose');
+
+const HealthMetric = require('../models/HealthMetrics');
+const authMiddleware = require('../middleware/authMiddleware');
+
+// ===============================
+// SAVE HEALTH METRIC
+// ===============================
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const {
+      weight,
+      sleepHours,
+      steps,
+      heartRate,
+      sleepQuality,
+      height,
+      waterIntake,
+      source,
+      notes
+    } = req.body;
+
+    const metric = new HealthMetric({
+      user: req.userId,
+      weight,
+      sleepHours,
+      steps,
+      heartRate,
+      sleepQuality,
+      height,
+      waterIntake,
+      source: source || 'manual',
+      notes,
+      date: new Date()
+    });
+
+    await metric.save();
+
+    res.status(201).json({
+      message: 'Health metric logged!',
+      metric
+    });
+  } catch (error) {
+    console.error('Health save error:', error);
+
+    res.status(500).json({
+      message: 'Failed to save health metric',
+      error: error.message
+    });
+  }
+});
+
+// ===============================
+// GET MY HEALTH LOGS
+// ===============================
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const metrics = await HealthMetric
+      .find({ user: req.userId })
+      .sort({ date: -1 });
+
+    res.json(metrics);
+  } catch (error) {
+    console.error('Health fetch error:', error);
+
+    res.status(500).json({
+      message: 'Failed to fetch health logs',
+      error: error.message
+    });
+  }
+});
+
+// ===============================
+// HEALTH TRENDS AGGREGATION
+// ===============================
+router.get('/trends', authMiddleware, async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.userId);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const [trends7Days, trends30Days] = await Promise.all([
+      HealthMetric.aggregate([
+        { $match: { user: userId, date: { $gte: sevenDaysAgo } } },
+        {
+          $group: {
+            _id: null,
+            avgSleep: { $avg: '$sleepHours' },
+            avgSteps: { $avg: '$steps' },
+            avgHeartRate: { $avg: '$heartRate' },
+            avgWater: { $avg: '$waterIntake' },
+            totalLogs: { $sum: 1 }
+          }
+        }
+      ]),
+      HealthMetric.aggregate([
+        { $match: { user: userId, date: { $gte: thirtyDaysAgo } } },
+        {
+          $group: {
+            _id: null,
+            avgSleep: { $avg: '$sleepHours' },
+            avgSteps: { $avg: '$steps' },
+            avgHeartRate: { $avg: '$heartRate' },
+            avgWater: { $avg: '$waterIntake' },
+            totalLogs: { $sum: 1 }
+          }
+        }
+      ])
+    ]);
+
+    res.json({
+      last7Days: trends7Days[0] ? {
+        avgSleep: Number((trends7Days[0].avgSleep || 0).toFixed(1)),
+        avgSteps: Math.round(trends7Days[0].avgSteps || 0),
+        avgHeartRate: Math.round(trends7Days[0].avgHeartRate || 0),
+        avgWater: Number((trends7Days[0].avgWater || 0).toFixed(1)),
+        totalLogs: trends7Days[0].totalLogs
+      } : null,
+      last30Days: trends30Days[0] ? {
+        avgSleep: Number((trends30Days[0].avgSleep || 0).toFixed(1)),
+        avgSteps: Math.round(trends30Days[0].avgSteps || 0),
+        avgHeartRate: Math.round(trends30Days[0].avgHeartRate || 0),
+        avgWater: Number((trends30Days[0].avgWater || 0).toFixed(1)),
+        totalLogs: trends30Days[0].totalLogs
+      } : null
+    });
+  } catch (error) {
+    console.error('Health trends error:', error);
+    res.status(500).json({
+      message: 'Failed to calculate health trends',
+      error: error.message
+    });
+  }
+});
+
+// ===============================
+// HEALTH ALERTS
+// ===============================
+router.get('/alerts', authMiddleware, async (req, res) => {
+  try {
+    const latest = await HealthMetric
+      .findOne({ user: req.userId })
+      .sort({ date: -1 });
+
+    const alerts = [];
+
+    if (latest) {
+      if (latest.sleepHours && latest.sleepHours < 6) {
+        alerts.push({ type: 'warning', text: `ðŸ˜´ Sleep duration (${latest.sleepHours}h) is below target of 6.0 hours.` });
+      }
+
+      if (latest.steps && latest.steps < 5000) {
+        alerts.push({ type: 'warning', text: `ðŸš¶ Daily steps (${latest.steps.toLocaleString()}) are below active threshold of 5,000 steps.` });
+      }
+
+      if (latest.waterIntake && latest.waterIntake < 2) {
+        alerts.push({ type: 'info', text: `ðŸ’§ Water intake (${latest.waterIntake}L) is below recommended 2.0 liters.` });
+      }
+
+      if (latest.heartRate && latest.heartRate > 100) {
+        alerts.push({ type: 'danger', text: `â¤ï¸ Elevated resting heart rate detected (${latest.heartRate} BPM).` });
+      }
+    }
+
+    res.json({ alerts });
+  } catch (error) {
+    console.error('Health alerts error:', error);
+
+    res.status(500).json({
+      message: 'Failed to fetch health alerts',
+      error: error.message
+    });
+  }
+});
+
+// ===============================
+// WEARABLE DATA SYNC MOCK
+// ===============================
+router.post('/sync-wearable', authMiddleware, async (req, res) => {
+  try {
+    const { provider } = req.body; // 'fitbit' or 'healthkit'
+    const source = provider === 'fitbit' ? 'fitbit' : 'healthkit';
+
+    // Simulated data generation
+    const mockSteps = Math.floor(Math.random() * 4000) + 6500; // 6500 - 10500
+    const mockSleep = Number((Math.random() * 2.5 + 6.5).toFixed(1)); // 6.5 - 9.0 hrs
+    const mockHeartRate = Math.floor(Math.random() * 15) + 62; // 62 - 77 BPM
+    const mockWater = Number((Math.random() * 1.5 + 2.0).toFixed(1)); // 2.0 - 3.5 L
+    const mockWeight = 70.0;
+    const mockHeight = 175;
+
+    const metric = new HealthMetric({
+      user: req.userId,
+      weight: mockWeight,
+      height: mockHeight,
+      sleepHours: mockSleep,
+      sleepQuality: mockSleep >= 7.5 ? 'excellent' : 'good',
+      steps: mockSteps,
+      heartRate: mockHeartRate,
+      waterIntake: mockWater,
+      source,
+      notes: `Automated sync from ${source === 'fitbit' ? 'Fitbit Wearable API' : 'Apple HealthKit'}`,
+      date: new Date()
+    });
+
+    await metric.save();
+
+    res.status(201).json({
+      message: `Successfully synced data from ${source === 'fitbit' ? 'Fitbit' : 'Apple HealthKit'}!`,
+      metric
+    });
+  } catch (error) {
+    console.error('Wearable sync error:', error);
+    res.status(500).json({
+      message: 'Failed to sync wearable data',
+      error: error.message
+    });
+  }
+});
+// ===============================
+// CROSS-MODULE CORRELATION (Q7)
+// ===============================
+router.get('/cross-module-correlation', authMiddleware, async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.userId);
+
+    const correlation = await HealthMetric.aggregate([
+      { $match: { user: userId } },
+      {
+        $group: {
+          _id: { $week: "$date" },
+          avgSleep: { $avg: "$sleepHours" },
+          avgSteps: { $avg: "$steps" }
+        }
+      },
+      {
+        $lookup: {
+          from: "academicgoals",
+          localField: "_id",
+          foreignField: "week",
+          as: "goals"
+        }
+      }
+    ]);
+
+    res.json(correlation);
+  } catch (error) {
+    console.error('Cross-module correlation error:', error);
+    res.status(500).json({
+      message: 'Failed to calculate cross-module correlation',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+--- nutrition.js ---
+const express = require('express');
+const router = express.Router();
+const mongoose = require('mongoose');
+
+const NutritionLog = require('../models/NutritionLog');
+const authMiddleware = require('../middleware/authMiddleware');
+
+// ==========================================
+// ADD MEAL
+// ==========================================
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const {
+      mealType,
+      foodName,
+      items,
+      calories,
+      protein,
+      carbs,
+      fat,
+      imageUrl
+    } = req.body;
+
+    let finalCalories = Number(calories) || 0;
+    let finalProtein = Number(protein) || 0;
+    let finalCarbs = Number(carbs) || 0;
+    let finalFat = Number(fat) || 0;
+
+    let processedItems = [];
+    if (Array.isArray(items) && items.length > 0) {
+      processedItems = items.map(item => ({
+        name: item.name || 'Item',
+        calories: Number(item.calories) || 0,
+        protein: Number(item.protein) || 0,
+        carbs: Number(item.carbs) || 0,
+        fat: Number(item.fat) || 0
+      }));
+
+      // Sum totals if not manually overridden
+      if (!calories) finalCalories = processedItems.reduce((s, i) => s + i.calories, 0);
+      if (!protein) finalProtein = processedItems.reduce((s, i) => s + i.protein, 0);
+      if (!carbs) finalCarbs = processedItems.reduce((s, i) => s + i.carbs, 0);
+      if (!fat) finalFat = processedItems.reduce((s, i) => s + i.fat, 0);
+    }
+
+    const meal = new NutritionLog({
+      user: req.userId,
+      mealType,
+      foodName: foodName || (processedItems[0]?.name ? `${processedItems[0].name} meal` : 'Meal'),
+      items: processedItems,
+      calories: finalCalories,
+      protein: finalProtein,
+      carbs: finalCarbs,
+      fat: finalFat,
+      imageUrl: imageUrl || '',
+      date: new Date()
+    });
+
+    await meal.save();
+
+    res.status(201).json({
+      message: 'Meal logged successfully!',
+      meal
+    });
+
+  } catch (error) {
+    console.error('Nutrition save error:', error);
+
+    res.status(500).json({
+      message: 'Failed to save meal',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// GET TODAY'S MEALS + GOALS
+// ==========================================
+// ==========================================
+// GET TODAY'S MEALS + GOALS
+// ==========================================
+
+router.get('/daily', authMiddleware, async (req, res) => {
+  try {
+    const User = require('../models/User');
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const [meals, user] = await Promise.all([
+      NutritionLog
+        .find({
+          user: req.userId,
+          date: {
+            $gte: startOfDay,
+            $lte: endOfDay
+          }
+        })
+        .sort({ date: -1 }),
+
+      User
+        .findById(req.userId)
+        .select('nutritionGoals')
+    ]);
+
+    const totals = meals.reduce(
+      (acc, meal) => {
+        acc.calories += meal.calories || 0;
+        acc.protein += meal.protein || 0;
+        acc.carbs += meal.carbs || 0;
+        acc.fat += meal.fat || 0;
+
+        return acc;
+      },
+      {
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0
+      }
+    );
+
+    res.json({
+      meals,
+      totals,
+      goals: user?.nutritionGoals || {
+        calories: 2000,
+        protein: 100
+      }
+    });
+
+  } catch (error) {
+    console.error('Nutrition fetch error:', error);
+
+    res.status(500).json({
+      message: 'Failed to fetch nutrition data',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// GET ALL MY MEALS
+// ==========================================
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const meals = await NutritionLog
+      .find({ user: req.userId })
+      .sort({ date: -1 });
+
+    res.json(meals);
+
+  } catch (error) {
+    console.error('Nutrition history error:', error);
+
+    res.status(500).json({
+      message: 'Failed to fetch nutrition history',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// GET 7-DAY NUTRITION AGGREGATED TRENDS
+// ==========================================
+router.get('/history-trends', authMiddleware, async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.userId);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const trends = await NutritionLog.aggregate([
+      {
+        $match: {
+          user: userId,
+          date: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+          totalCalories: { $sum: "$calories" },
+          totalProtein: { $sum: "$protein" },
+          totalCarbs: { $sum: "$carbs" },
+          totalFat: { $sum: "$fat" },
+          mealCount: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.json(trends);
+  } catch (error) {
+    console.error('Nutrition history trends error:', error);
+    res.status(500).json({
+      message: 'Failed to calculate nutrition trends',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
+--- authMiddleware.js ---
+const jwt = require('jsonwebtoken');
+
+const authMiddleware = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        message: 'Authentication required'
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    req.userId = decoded.id;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      message: 'Invalid or expired token'
+    });
+  }
+};
+
+module.exports = authMiddleware;

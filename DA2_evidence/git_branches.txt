@@ -1,0 +1,8 @@
+﻿* academic-dashboard
+  frontend-h
+  main
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/academic-dashboard
+  remotes/origin/backend-integration
+  remotes/origin/frontend-h
+  remotes/origin/main

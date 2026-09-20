@@ -1,0 +1,7 @@
+﻿academicgoals
+chatmessages
+digitaltwinprofiles
+documents
+healthmetrics
+nutritionlogs
+users

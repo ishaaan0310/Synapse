@@ -1,0 +1,21 @@
+﻿4a2ce06 | Harsh | 2026-09-20 | Add goal deletion, goal filtering, and quick water log button
+fb66857 | Harsh | 2026-09-20 | Improve responsive dashboard styling
+96948fb | Harsh | 2026-09-20 | Enhance dashboard statistics
+9fb17df | Harsh | 2026-09-20 | Improve academic goals module
+3a296b8 | Harsh | 2026-09-20 | UI: modernize Academic goals page
+8812b7e | Ishan Kumar | 2026-09-20 | Improve health tracking API
+2c70c17 | Ishan Kumar | 2026-09-20 | Improve nutrition goals API
+54776ec | Ishan Kumar | 2026-09-20 | Resolve dashboard API integration
+1e79989 | GalaxyPhoenix | 2026-09-20 | fix(dashboard) Clean up unused variables and format stat card subtitles
+8f8f7ac | Ishan Kumar | 2026-09-20 | Improve dashboard summary API
+b82dbc4 | Ishan Kumar | 2026-09-20 | Strengthen user model validation
+f18afd1 | GalaxyPhoenix | 2026-09-20 | feat(dashboard) Digital Twin command center overview, alerts banner, quick actions & activity feed
+26b1e37 | GalaxyPhoenix | 2026-09-20 | feat(nutrition) Historical 7 day Nutrition aggregation pipeline & trends view
+860e1ba | GalaxyPhoenix | 2026-09-20 | feat(nutrition) Calories Remaining calculation & Macro Calorie Split Ratio display
+6142b85 | GalaxyPhoenix | 2026-09-20 | feat(nutrition) Multi item subdocuments array & Image preview support
+8375644 | GalaxyPhoenix | 2026-09-20 | feat(health) 7 day & 30 day Health trend aggregations pipeline & analytics view
+9bc31c9 | GalaxyPhoenix | 2026-09-20 | feat(health) Health alerts engine & Wearable Sync integration (Fitbit & Apple HealthKit)
+46a0f75 | GalaxyPhoenix | 2026-09-20 | feat(health) Complete schema alignment and expanded form input fields
+22a29ec | Ishan Kumar | 2026-09-17 | Improve authentication and JWT security
+b8aa7aa | Ishan Kumar | 2026-09-17 | improved backend server handling and also improved error handling
+b9d29ed | Ishan Kumar | 2026-09-17 | Initial Synapse project
