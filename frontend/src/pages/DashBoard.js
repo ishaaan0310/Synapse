@@ -115,6 +115,14 @@ function Dashboard() {
           <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontWeight: '500' }}>
             Sleep • {latestHealth?.steps?.toLocaleString() || 0} Steps
           </span>
+          <button 
+            onClick={handleQuickWaterLog}
+            style={{ marginTop: '1rem', display: 'block', width: '100%', padding: '0.5rem', background: '#ecfdf5', color: '#059669', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', transition: 'background 0.2s' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#ecfdf5'}
+          >
+            💧 Quick Log Water (+500ml)
+          </button>
         </div>
 
         <div className="card dashboard-col-1" style={{ borderTop: '4px solid #f59e0b' }}>

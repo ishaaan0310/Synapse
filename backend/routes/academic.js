@@ -124,4 +124,27 @@ router.patch('/:id/progress', authMiddleware, async (req, res) => {
   }
 });
 
+// Delete goal
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const goal = await AcademicGoal.findOneAndDelete({
+      _id: req.params.id,
+      user: req.userId
+    });
+
+    if (!goal) {
+      return res.status(404).json({
+        error: 'Goal not found'
+      });
+    }
+
+    res.json({ message: 'Goal deleted successfully' });
+  } catch (err) {
+    console.error('Delete academic goal error:', err);
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
 module.exports = router;

@@ -13,6 +13,7 @@ function Academic() {
   const [form, setForm] = useState(emptyForm);
   const [goals, setGoals] = useState([]);
   const [atRisk, setAtRisk] = useState(0);
+  const [filter, setFilter] = useState('all');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -89,8 +90,28 @@ function Academic() {
     }
   };
 
+  const deleteGoal = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this goal?')) return;
+    try {
+      await api.delete(`/academic/${id}`);
+      await fetchGoals();
+    } catch (err) {
+      console.error('Delete goal error:', err);
+      setError(
+        err.response?.data?.error ||
+        'Unable to delete goal'
+      );
+    }
+  };
+
   const completedGoals = goals.filter(g => g.status === 'completed' || g.progress === 100).length;
   const pendingGoals = goals.length - completedGoals;
+
+  const filteredGoals = goals.filter(goal => {
+    if (filter === 'completed') return goal.progress === 100 || goal.status === 'completed';
+    if (filter === 'pending') return goal.progress < 100 && goal.status !== 'completed';
+    return true;
+  });
 
   return (
     <div className="page" style={{ maxWidth: '1000px', margin: '0 auto', padding: '2rem', fontFamily: '"Inter", system-ui, sans-serif' }}>
@@ -217,21 +238,37 @@ function Academic() {
 
       {/* Goals Display Section */}
       <div>
-        <h3 style={{ fontSize: '1.75rem', color: '#0f172a', marginBottom: '2rem', fontWeight: '700' }}>Your Pending & Completed Goals</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2rem' }}>
+          <h3 style={{ fontSize: '1.75rem', color: '#0f172a', margin: 0, fontWeight: '700' }}>Your Goals</h3>
+          <div style={{ display: 'flex', gap: '0.5rem', background: '#f1f5f9', padding: '0.25rem', borderRadius: '8px' }}>
+            <button 
+              onClick={() => setFilter('all')} 
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', background: filter === 'all' ? '#fff' : 'transparent', color: filter === 'all' ? '#0f172a' : '#64748b', fontWeight: filter === 'all' ? '600' : '500', boxShadow: filter === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', transition: 'all 0.2s' }}
+            >All</button>
+            <button 
+              onClick={() => setFilter('pending')} 
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', background: filter === 'pending' ? '#fff' : 'transparent', color: filter === 'pending' ? '#0f172a' : '#64748b', fontWeight: filter === 'pending' ? '600' : '500', boxShadow: filter === 'pending' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', transition: 'all 0.2s' }}
+            >Pending</button>
+            <button 
+              onClick={() => setFilter('completed')} 
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', background: filter === 'completed' ? '#fff' : 'transparent', color: filter === 'completed' ? '#0f172a' : '#64748b', fontWeight: filter === 'completed' ? '600' : '500', boxShadow: filter === 'completed' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', transition: 'all 0.2s' }}
+            >Completed</button>
+          </div>
+        </div>
 
         {loading ? (
           <div className="loading" style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
             <div className="spinner"></div>
             <p style={{ fontSize: '1.1rem' }}>Loading academic goals...</p>
           </div>
-        ) : goals.length === 0 ? (
+        ) : filteredGoals.length === 0 ? (
           <div className="card" style={{ background: '#f8fafc', padding: '4rem 2rem', textAlign: 'center', borderRadius: '16px', border: '2px dashed #cbd5e1', color: '#64748b' }}>
             <h4 style={{ fontSize: '1.25rem', color: '#475569', marginBottom: '0.5rem' }}>No goals found</h4>
-            <p>You haven't set any academic goals yet. Create your first goal above!</p>
+            <p>You haven't set any academic goals for this filter yet.</p>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '2rem' }}>
-            {goals.map((goal) => (
+            {filteredGoals.map((goal) => (
 
               /* Goal Card */
               <div className="card" key={goal._id} style={{ background: '#ffffff', padding: '1.75rem', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)', border: '1px solid #f1f5f9', borderTop: `5px solid ${goal.progress === 100 ? '#10b981' : goal.priority === 'high' ? '#ef4444' : goal.priority === 'medium' ? '#f59e0b' : '#3b82f6'}`, display: 'flex', flexDirection: 'column', transition: 'transform 0.2s ease, box-shadow 0.2s ease', cursor: 'default' }}
@@ -239,10 +276,23 @@ function Academic() {
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05)'; }}>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
-                  <h3 style={{ fontSize: '1.25rem', color: '#0f172a', margin: 0, fontWeight: '700', lineHeight: 1.3, textDecoration: goal.progress === 100 ? 'line-through' : 'none', opacity: goal.progress === 100 ? 0.6 : 1 }}>{goal.title}</h3>
-                  <span style={{ fontSize: '0.7rem', fontWeight: '700', padding: '0.25rem 0.6rem', borderRadius: '9999px', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: goal.priority === 'high' ? '#fee2e2' : goal.priority === 'medium' ? '#fef3c7' : '#e0e7ff', color: goal.priority === 'high' ? '#b91c1c' : goal.priority === 'medium' ? '#b45309' : '#3730a3' }}>
-                    {goal.priority}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <h3 style={{ fontSize: '1.25rem', color: '#0f172a', margin: 0, fontWeight: '700', lineHeight: 1.3, textDecoration: goal.progress === 100 ? 'line-through' : 'none', opacity: goal.progress === 100 ? 0.6 : 1 }}>{goal.title}</h3>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: '700', padding: '0.25rem 0.6rem', borderRadius: '9999px', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: goal.priority === 'high' ? '#fee2e2' : goal.priority === 'medium' ? '#fef3c7' : '#e0e7ff', color: goal.priority === 'high' ? '#b91c1c' : goal.priority === 'medium' ? '#b45309' : '#3730a3' }}>
+                        {goal.priority}
+                      </span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => deleteGoal(goal._id)}
+                    style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.25rem', opacity: 0.6, transition: 'opacity 0.2s', alignSelf: 'flex-start' }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = 0.6}
+                    title="Delete Goal"
+                  >
+                    🗑️
+                  </button>
                 </div>
 
                 {goal.description && (
