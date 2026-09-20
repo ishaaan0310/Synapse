@@ -1,52 +1,48 @@
 const mongoose = require('mongoose');
 
-const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true
-  },
-
-  email: {
-    type: String,
-    required: true,
-    unique: true
-  },
-
-  password: {
-    type: String,
-    required: true
-  },
-
-  profilePicture: {
-    type: String,
-    default: ''
-  },
-
-  // ==============================
-  // DAILY NUTRITION GOALS
-  // ==============================
-
-  nutritionGoals: {
-    calories: {
-      type: Number,
-      default: 2000
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, 'Name is required'],
+      trim: true,
+      minlength: 2,
+      maxlength: 50
     },
 
-    protein: {
-      type: Number,
-      default: 100
+    email: {
+      type: String,
+      required: [true, 'Email is required'],
+      unique: true,
+      lowercase: true,
+      trim: true
+    },
+
+    password: {
+      type: String,
+      required: [true, 'Password is required'],
+      minlength: 6
+    },
+
+    profilePicture: {
+      type: String,
+      default: ''
+    },
+
+    nutritionGoals: {
+      calories: {
+        type: Number,
+        default: 2000,
+        min: 0
+      },
+      protein: {
+        type: Number,
+        default: 100,
+        min: 0
+      }
     }
   },
-
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+  { timestamps: true }
+);
 
 module.exports = mongoose.model('User', userSchema);
