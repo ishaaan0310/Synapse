@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
 const NutritionLog = require('../models/NutritionLog');
 const authMiddleware = require('../middleware/authMiddleware');
@@ -12,6 +13,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const {
       mealType,
       foodName,
+      items,
       calories,
       protein,
       carbs,
@@ -19,14 +21,37 @@ router.post('/', authMiddleware, async (req, res) => {
       imageUrl
     } = req.body;
 
+    let finalCalories = Number(calories) || 0;
+    let finalProtein = Number(protein) || 0;
+    let finalCarbs = Number(carbs) || 0;
+    let finalFat = Number(fat) || 0;
+
+    let processedItems = [];
+    if (Array.isArray(items) && items.length > 0) {
+      processedItems = items.map(item => ({
+        name: item.name || 'Item',
+        calories: Number(item.calories) || 0,
+        protein: Number(item.protein) || 0,
+        carbs: Number(item.carbs) || 0,
+        fat: Number(item.fat) || 0
+      }));
+
+      // Sum totals if not manually overridden
+      if (!calories) finalCalories = processedItems.reduce((s, i) => s + i.calories, 0);
+      if (!protein) finalProtein = processedItems.reduce((s, i) => s + i.protein, 0);
+      if (!carbs) finalCarbs = processedItems.reduce((s, i) => s + i.carbs, 0);
+      if (!fat) finalFat = processedItems.reduce((s, i) => s + i.fat, 0);
+    }
+
     const meal = new NutritionLog({
       user: req.userId,
       mealType,
-      foodName,
-      calories: Number(calories) || 0,
-      protein: Number(protein) || 0,
-      carbs: Number(carbs) || 0,
-      fat: Number(fat) || 0,
+      foodName: foodName || (processedItems[0]?.name ? `${processedItems[0].name} meal` : 'Meal'),
+      items: processedItems,
+      calories: finalCalories,
+      protein: finalProtein,
+      carbs: finalCarbs,
+      fat: finalFat,
       imageUrl: imageUrl || '',
       date: new Date()
     });
@@ -133,6 +158,46 @@ router.get('/', authMiddleware, async (req, res) => {
 
     res.status(500).json({
       message: 'Failed to fetch nutrition history',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// GET 7-DAY NUTRITION AGGREGATED TRENDS
+// ==========================================
+router.get('/history-trends', authMiddleware, async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.userId);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const trends = await NutritionLog.aggregate([
+      {
+        $match: {
+          user: userId,
+          date: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+          totalCalories: { $sum: "$calories" },
+          totalProtein: { $sum: "$protein" },
+          totalCarbs: { $sum: "$carbs" },
+          totalFat: { $sum: "$fat" },
+          mealCount: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.json(trends);
+  } catch (error) {
+    console.error('Nutrition history trends error:', error);
+    res.status(500).json({
+      message: 'Failed to calculate nutrition trends',
       error: error.message
     });
   }
