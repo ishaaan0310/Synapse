@@ -13,6 +13,10 @@ function Login() {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const sessionExpired =
+    new URLSearchParams(window.location.search).get('expired') === '1';
 
   const handleChange = (e) => {
     setForm({
@@ -34,7 +38,9 @@ function Login() {
       setError(
         err.response?.data?.msg ||
         err.response?.data?.message ||
-        'Login failed'
+        (err.request && !err.response
+          ? 'Cannot reach the server. Is the backend running?'
+          : 'Login failed')
       );
     } finally {
       setLoading(false);
@@ -50,6 +56,12 @@ function Login() {
         <p className="auth-subtitle">
           Sign in to your Synapse account
         </p>
+
+        {sessionExpired && !error && (
+          <div className="info-message">
+            Your session expired. Please sign in again.
+          </div>
+        )}
 
         {error && (
           <div className="error-message">
@@ -71,14 +83,26 @@ function Login() {
 
           <label>Password</label>
 
-          <input
-            type="password"
-            name="password"
-            placeholder="Enter your password"
-            value={form.password}
-            onChange={handleChange}
-            required
-          />
+          <div className="password-field">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              placeholder="Enter your password"
+              value={form.password}
+              onChange={handleChange}
+              autoComplete="current-password"
+              required
+            />
+
+            <button
+              type="button"
+              className="password-toggle"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
+          </div>
 
           <button
             className="btn auth-btn"

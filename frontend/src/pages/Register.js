@@ -14,6 +14,26 @@ function Register() {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Simple password strength meter
+  const strength = (() => {
+    const p = form.password;
+    if (!p) return null;
+    let score = 0;
+    if (p.length >= 8) score += 1;
+    if (/[A-Z]/.test(p) && /[a-z]/.test(p)) score += 1;
+    if (/\d/.test(p)) score += 1;
+    if (/[^A-Za-z0-9]/.test(p)) score += 1;
+    if (p.length < 6) return { label: 'Too short', level: 0 };
+    return [
+      { label: 'Weak', level: 1 },
+      { label: 'Fair', level: 2 },
+      { label: 'Good', level: 3 },
+      { label: 'Strong', level: 4 },
+      { label: 'Strong', level: 4 }
+    ][score];
+  })();
 
   const handleChange = (e) => {
     setForm({
@@ -93,15 +113,34 @@ function Register() {
 
           <label>Password</label>
 
-          <input
-            type="password"
-            name="password"
-            placeholder="Create a password"
-            value={form.password}
-            onChange={handleChange}
-            minLength="6"
-            required
-          />
+          <div className="password-field">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              placeholder="Create a password"
+              value={form.password}
+              onChange={handleChange}
+              minLength="6"
+              autoComplete="new-password"
+              required
+            />
+
+            <button
+              type="button"
+              className="password-toggle"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
+          </div>
+
+          {strength && (
+            <div className={`strength strength-${strength.level}`}>
+              <div className="strength-bar"><span /></div>
+              <small>{strength.label}</small>
+            </div>
+          )}
 
           <button
             className="btn auth-btn"

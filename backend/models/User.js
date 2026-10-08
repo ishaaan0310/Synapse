@@ -39,6 +39,16 @@ const userSchema = new mongoose.Schema(
         type: Number,
         default: 100,
         min: 0
+      },
+      carbs: {
+        type: Number,
+        default: 250,
+        min: 0
+      },
+      fat: {
+        type: Number,
+        default: 70,
+        min: 0
       }
     }
   },

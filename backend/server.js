@@ -16,16 +16,35 @@ const PORT = process.env.PORT || 5000;
 // MIDDLEWARE
 // ==========================================
 
-app.use(cors());
+// Allow the React dev server (or CLIENT_URL from .env) to call the API
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim());
 
-app.use(express.json());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow tools like Postman (no origin) and listed origins
+      const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin || '');
+
+      if (!origin || allowedOrigins.includes(origin) || isLocalhost) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    }
+  })
+);
+
+app.use(express.json({ limit: '1mb' }));
 
 app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  '/uploads',
-  express.static(path.join(__dirname, 'uploads'))
-);
+// NOTE: uploaded files are no longer served publicly from /uploads.
+// They are streamed through GET /api/documents/:id/file, which checks
+// that the logged-in user owns the document.
+
+// Make sure the uploads folder exists (multer will not create it)
+require('fs').mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
 
 // ==========================================
 // ROUTES
@@ -40,6 +59,7 @@ app.use('/api/academic', require('./routes/academic'));
 app.use('/api/documents', require('./routes/documents'));
 app.use('/api/chat', require('./routes/chat'));
 app.use('/api/digital-twin', require('./routes/digitalTwin'));
+app.use('/api/profile', require('./routes/profile'));
 
 // ==========================================
 // ROOT HEALTH CHECK
@@ -86,7 +106,26 @@ app.use((req, res) => {
 // ==========================================
 
 app.use((err, req, res, next) => {
-  console.error('Server Error:', err);
+  console.error('Server Error:', err.message);
+
+  // Multer upload errors (file too large, wrong type, ...)
+  if (err.name === 'MulterError') {
+    return res.status(400).json({
+      success: false,
+      message:
+        err.code === 'LIMIT_FILE_SIZE'
+          ? 'File is too large (max 10 MB)'
+          : err.message
+    });
+  }
+
+  // Malformed ObjectId in a URL, e.g. /api/health/abc
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid id'
+    });
+  }
 
   res.status(err.status || 500).json({
     success: false,

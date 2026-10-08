@@ -5,33 +5,80 @@ const mongoose = require('mongoose');
 const HealthMetric = require('../models/HealthMetrics');
 const authMiddleware = require('../middleware/authMiddleware');
 
+// ==========================================
+// VALIDATION HELPER
+// Converts form values to numbers and checks realistic ranges.
+// Returns { data } or { error }.
+// ==========================================
+const NUMERIC_FIELDS = {
+  weight: { min: 1, max: 400, label: 'Weight (kg)' },
+  height: { min: 30, max: 260, label: 'Height (cm)' },
+  sleepHours: { min: 0, max: 24, label: 'Sleep hours' },
+  steps: { min: 0, max: 150000, label: 'Steps' },
+  heartRate: { min: 20, max: 250, label: 'Heart rate' },
+  waterIntake: { min: 0, max: 15, label: 'Water intake (L)' }
+};
+
+const SLEEP_QUALITIES = ['poor', 'fair', 'good', 'excellent'];
+
+const parseHealthInput = (body) => {
+  const data = {};
+
+  for (const [field, rule] of Object.entries(NUMERIC_FIELDS)) {
+    const raw = body[field];
+    if (raw === undefined || raw === null || raw === '') continue;
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < rule.min || value > rule.max) {
+      return { error: `${rule.label} must be between ${rule.min} and ${rule.max}` };
+    }
+    data[field] = value;
+  }
+
+  if (body.sleepQuality) {
+    if (!SLEEP_QUALITIES.includes(body.sleepQuality)) {
+      return { error: 'Invalid sleep quality' };
+    }
+    data.sleepQuality = body.sleepQuality;
+  }
+
+  if (typeof body.notes === 'string') {
+    data.notes = body.notes.trim().slice(0, 500);
+  }
+
+  if (body.date) {
+    const date = new Date(body.date);
+    if (Number.isNaN(date.getTime()) || date > new Date(Date.now() + 60 * 1000)) {
+      return { error: 'Date cannot be in the future' };
+    }
+    data.date = date;
+  }
+
+  return { data };
+};
+
 // SAVE HEALTH METRIC
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const {
-      weight,
-      sleepHours,
-      steps,
-      heartRate,
-      sleepQuality,
-      height,
-      waterIntake,
-      source,
-      notes
-    } = req.body;
+    const { data, error } = parseHealthInput(req.body);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const hasMetric = Object.keys(NUMERIC_FIELDS).some((f) => data[f] !== undefined);
+    if (!hasMetric) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter at least one metric'
+      });
+    }
 
     const metric = new HealthMetric({
       user: req.userId,
-      weight,
-      sleepHours,
-      steps,
-      heartRate,
-      sleepQuality,
-      height,
-      waterIntake,
-      source: source || 'manual',
-      notes,
-      date: new Date()
+      ...data,
+      source: 'manual',
+      date: data.date || new Date()
     });
 
     await metric.save();
@@ -55,9 +102,20 @@ router.post('/', authMiddleware, async (req, res) => {
 // GET MY HEALTH LOGS
 router.get('/', authMiddleware, async (req, res) => {
   try {
+    // Optional ?days=30 filter for charts
+    const filter = { user: req.userId };
+    const days = Number(req.query.days);
+    if (Number.isFinite(days) && days > 0) {
+      const since = new Date();
+      since.setHours(0, 0, 0, 0);
+      since.setDate(since.getDate() - (days - 1));
+      filter.date = { $gte: since };
+    }
+
     const metrics = await HealthMetric
-      .find({ user: req.userId })
-      .sort({ date: -1 });
+      .find(filter)
+      .sort({ date: -1 })
+      .limit(500);
 
     return res.status(200).json({
       success: true,
@@ -208,7 +266,9 @@ router.get('/alerts', authMiddleware, async (req, res) => {
   }
 });
 
-// WEARABLE DATA SYNC MOCK
+// WEARABLE DATA SYNC (DEMO)
+// Generates realistic sample data. Swap this for the real Fitbit /
+// Apple HealthKit APIs once you have API credentials.
 router.post('/sync-wearable', authMiddleware, async (req, res) => {
   try {
     const { provider } = req.body;
@@ -226,10 +286,15 @@ router.post('/sync-wearable', authMiddleware, async (req, res) => {
       (Math.random() * 1.5 + 2.0).toFixed(1)
     );
 
+    // Re-use the user's last known weight/height instead of fixed values
+    const lastBody = await HealthMetric
+      .findOne({ user: req.userId, weight: { $ne: null } })
+      .sort({ date: -1 });
+
     const metric = new HealthMetric({
       user: req.userId,
-      weight: 70.0,
-      height: 175,
+      weight: lastBody?.weight,
+      height: lastBody?.height,
       sleepHours: mockSleep,
       sleepQuality: mockSleep >= 7.5 ? 'excellent' : 'good',
       steps: mockSteps,
@@ -298,6 +363,49 @@ router.get('/cross-module-correlation', authMiddleware, async (req, res) => {
       success: false,
       message: 'Failed to calculate cross-module correlation'
     });
+  }
+});
+
+// UPDATE A HEALTH LOG
+router.put('/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const { data, error } = parseHealthInput(req.body);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const metric = await HealthMetric.findOneAndUpdate(
+      { _id: req.params.id, user: req.userId },
+      { $set: data },
+      { new: true, runValidators: true }
+    );
+
+    if (!metric) {
+      return res.status(404).json({ success: false, message: 'Health log not found' });
+    }
+
+    return res.json({ success: true, message: 'Health log updated', metric });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE A HEALTH LOG
+router.delete('/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const metric = await HealthMetric.findOneAndDelete({
+      _id: req.params.id,
+      user: req.userId
+    });
+
+    if (!metric) {
+      return res.status(404).json({ success: false, message: 'Health log not found' });
+    }
+
+    return res.json({ success: true, message: 'Health log deleted' });
+  } catch (error) {
+    next(error);
   }
 });
 

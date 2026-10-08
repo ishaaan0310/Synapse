@@ -1,51 +1,62 @@
-import React, { useEffect, useState, useRef } from 'react';
-import api from '../utils/api';
+import React, { useEffect, useRef, useState } from 'react';
+import api, { getErrorMessage } from '../utils/api';
+import { useToast } from '../components/Toast';
+
+const SUGGESTIONS = [
+  'How am I doing?',
+  'How did I sleep?',
+  'How many calories today?',
+  'What deadlines are coming up?',
+  "What's my weight trend?",
+  'Any documents expiring?'
+];
+
+// Render **bold** and line breaks safely (no dangerouslySetInnerHTML)
+function FormattedText({ text }) {
+  return text.split('\n').map((line, lineIndex) => (
+    <React.Fragment key={lineIndex}>
+      {lineIndex > 0 && <br />}
+      {line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+        part.startsWith('**') && part.endsWith('**')
+          ? <strong key={i}>{part.slice(2, -2)}</strong>
+          : <React.Fragment key={i}>{part}</React.Fragment>
+      )}
+    </React.Fragment>
+  ));
+}
+
+const formatTime = (date) =>
+  new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
 function Chat() {
+  const toast = useToast();
 
   const [messages, setMessages] = useState([]);
-
   const [input, setInput] = useState('');
-
   const [loading, setLoading] = useState(true);
-
   const [sending, setSending] = useState(false);
-
   const [error, setError] = useState('');
 
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   // ==========================================
   // LOAD CHAT HISTORY
   // ==========================================
 
-  const fetchMessages = async () => {
-
-    try {
-
-      setLoading(true);
-
-      const response = await api.get('/chat');
-
-      setMessages(response.data);
-
-    } catch (err) {
-
-      console.error('Chat history error:', err);
-
-      setError(
-        err.response?.data?.message ||
-        'Unable to load conversation'
-      );
-
-    } finally {
-
-      setLoading(false);
-
-    }
-  };
-
   useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        const response = await api.get('/chat');
+        setMessages(response.data);
+      } catch (err) {
+        console.error('Chat history error:', err);
+        setError(getErrorMessage(err, 'Unable to load conversation'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchMessages();
   }, []);
 
@@ -54,275 +65,146 @@ function Chat() {
   // ==========================================
 
   useEffect(() => {
-
-    messagesEndRef.current?.scrollIntoView({
-      behavior: 'smooth'
-    });
-
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, sending]);
 
   // ==========================================
   // SEND MESSAGE
   // ==========================================
 
-  const sendMessage = async (e) => {
+  const sendMessage = async (text) => {
+    const content = (text ?? input).trim();
 
-    e.preventDefault();
+    if (!content || sending) return;
 
-    if (!input.trim() || sending) {
-      return;
-    }
+    // Show the user's message immediately
+    const tempId = `temp-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { _id: tempId, role: 'user', content, timestamp: new Date().toISOString(), pending: true }
+    ]);
+    setInput('');
+    setSending(true);
+    setError('');
 
     try {
+      const response = await api.post('/chat', { content });
 
-      setSending(true);
-
-      setError('');
-
-      const response = await api.post('/chat', {
-        content: input.trim()
-      });
-
-      setMessages(prev => [
-        ...prev,
+      setMessages((prev) => [
+        ...prev.filter((m) => m._id !== tempId),
         response.data.userMessage,
         response.data.assistantMessage
       ]);
-
-      setInput('');
-
     } catch (err) {
-
       console.error('Chat send error:', err);
-
-      setError(
-        err.response?.data?.message ||
-        'Unable to send message'
-      );
-
+      setMessages((prev) => prev.filter((m) => m._id !== tempId));
+      setInput(content);
+      setError(getErrorMessage(err, 'Unable to send message'));
     } finally {
-
       setSending(false);
+      inputRef.current?.focus();
+    }
+  };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    sendMessage();
+  };
+
+  const clearChat = async () => {
+    if (!window.confirm('Clear your entire conversation with your twin?')) return;
+
+    try {
+      await api.delete('/chat');
+      setMessages([]);
+      toast.success('Conversation cleared');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not clear chat'));
     }
   };
 
   return (
+    <div className="page chat-page">
+      <div className="page-header">
+        <h2>🤖 AI Twin</h2>
+        {messages.length > 0 && (
+          <button type="button" className="btn btn-secondary small" onClick={clearChat}>
+            🧹 Clear chat
+          </button>
+        )}
+      </div>
 
-    <div className="page">
-
-      <h2>🤖 AI Twin</h2>
-
-      <div
-        className="card"
-        style={{
-          maxWidth: '900px',
-          margin: '0 auto'
-        }}
-      >
-
-        {/* ====================================
-            CHAT AREA
-        ===================================== */}
-
-        <div
-          style={{
-            height: '500px',
-            overflowY: 'auto',
-            padding: '1rem',
-            marginBottom: '1rem',
-            background: '#f7f7ff',
-            borderRadius: '12px'
-          }}
-        >
-
+      <div className="card chat-card">
+        <div className="chat-window">
           {loading ? (
-
-            <p>Loading your conversation...</p>
-
+            <div className="loading"><div className="spinner" />Loading your conversation...</div>
           ) : messages.length === 0 ? (
-
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '5rem 1rem'
-              }}
-            >
-
-              <div
-                style={{
-                  fontSize: '4rem'
-                }}
-              >
-                🧠
-              </div>
-
-              <h3>
-                Your Digital Twin is ready
-              </h3>
-
-              <p>
-                Ask me about your health,
-                nutrition or academic progress.
+            <div className="empty-state">
+              <div className="empty-icon">🧠</div>
+              <h3>Your Digital Twin is ready</h3>
+              <p className="muted">
+                I learn from your health, nutrition, academic and document data.
+                Try one of the suggestions below.
               </p>
-
             </div>
-
           ) : (
-
             messages.map((message) => (
-
-              <div
-                key={message._id}
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    message.role === 'user'
-                      ? 'flex-end'
-                      : 'flex-start',
-                  marginBottom: '1rem'
-                }}
-              >
-
-                <div
-                  style={{
-                    maxWidth: '75%',
-                    padding: '0.9rem 1.1rem',
-                    borderRadius: '16px',
-                    background:
-                      message.role === 'user'
-                        ? '#667eea'
-                        : '#ffffff',
-                    color:
-                      message.role === 'user'
-                        ? 'white'
-                        : '#222',
-                    boxShadow:
-                      '0 2px 8px rgba(0,0,0,0.08)'
-                  }}
-                >
-
-                  <div
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: 'bold',
-                      marginBottom: '0.3rem',
-                      opacity: 0.7
-                    }}
-                  >
-                    {message.role === 'user'
-                      ? 'You'
-                      : '🧠 Synapse'}
+              <div key={message._id} className={`message-row ${message.role}`}>
+                {message.role === 'assistant' && <div className="bot-avatar">🧠</div>}
+                <div className={`bubble ${message.role} ${message.pending ? 'pending' : ''}`}>
+                  <div className="bubble-text">
+                    <FormattedText text={message.content} />
                   </div>
-
-                  <div>
-                    {message.content}
-                  </div>
-
+                  <div className="bubble-time">{formatTime(message.timestamp)}</div>
                 </div>
-
               </div>
-
             ))
+          )}
 
+          {sending && (
+            <div className="message-row assistant">
+              <div className="bot-avatar">🧠</div>
+              <div className="bubble assistant typing" aria-label="Twin is typing">
+                <span /><span /><span />
+              </div>
+            </div>
           )}
 
           <div ref={messagesEndRef} />
-
         </div>
 
-        {/* ====================================
-            ERROR
-        ===================================== */}
+        {error && <div className="error-message">{error}</div>}
 
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
-        )}
-
-        {/* ====================================
-            INPUT
-        ===================================== */}
-
-        <form
-          onSubmit={sendMessage}
-          style={{
-            display: 'flex',
-            gap: '0.75rem'
-          }}
-        >
-
-          <input
-            type="text"
-            placeholder="Ask your Digital Twin..."
-            value={input}
-            onChange={(e) =>
-              setInput(e.target.value)
-            }
-            disabled={sending}
-            style={{
-              marginBottom: 0
-            }}
-          />
-
-          <button
-            type="submit"
-            className="btn"
-            disabled={
-              sending ||
-              !input.trim()
-            }
-          >
-            {sending
-              ? '...'
-              : 'Send'}
-          </button>
-
-        </form>
-
-        {/* ====================================
-            SUGGESTIONS
-        ===================================== */}
-
-        <div
-          style={{
-            marginTop: '1rem',
-            display: 'flex',
-            gap: '0.5rem',
-            flexWrap: 'wrap'
-          }}
-        >
-
-          {[
-            'How is my health?',
-            'How many calories did I eat today?',
-            'What should I study next?'
-          ].map((suggestion) => (
-
+        <div className="chips">
+          {SUGGESTIONS.map((suggestion) => (
             <button
               key={suggestion}
               type="button"
-              onClick={() =>
-                setInput(suggestion)
-              }
-              style={{
-                padding: '0.5rem 0.8rem',
-                borderRadius: '20px',
-                border: '1px solid #ddd',
-                background: '#fff',
-                cursor: 'pointer'
-              }}
+              className="chip"
+              disabled={sending}
+              onClick={() => sendMessage(suggestion)}
             >
               {suggestion}
             </button>
-
           ))}
-
         </div>
 
-      </div>
+        <form onSubmit={handleSubmit} className="chat-input">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Ask your Digital Twin..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            maxLength="1000"
+            autoFocus
+          />
 
+          <button type="submit" className="btn" disabled={sending || !input.trim()}>
+            {sending ? '…' : 'Send'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
