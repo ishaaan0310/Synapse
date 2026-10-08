@@ -717,12 +717,21 @@ form > select {
 }
 
 .form-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: block;
   font-weight: 600;
   font-size: 0.88rem;
   color: var(--text-2);
+}
+
+.form-grid label > input,
+.form-grid label > select,
+.form-grid label > textarea {
+  display: block;
+  margin-top: 6px;
+}
+
+.form-grid label > .muted {
+  font-weight: 500;
 }
 
 .form-grid label.full {
@@ -1172,6 +1181,49 @@ a.stat-card:hover {
 .vital span {
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.block-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.water-chip {
+  min-height: 30px;
+  padding: 3px 10px;
+  font-size: 0.82rem;
+  color: var(--water);
+  border-color: color-mix(in srgb, var(--water) 35%, var(--border));
+}
+
+.activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.activity li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.activity li > div {
+  display: grid;
+  min-width: 0;
+}
+
+.activity small {
+  font-size: 0.82rem;
 }
 
 /* Twin core ring: the dashboard's one bold moment */
@@ -1664,6 +1716,115 @@ a.stat-card:hover {
 
 .date-nav input {
   width: auto;
+}
+
+/* Nutrition: remaining calories + macro split + meal photos */
+.remaining-callout {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 22px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--nutrition) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--nutrition) 25%, transparent);
+}
+
+.remaining-callout.over {
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.remaining-callout p {
+  margin: 2px 0 0;
+}
+
+.remaining-value {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 750;
+  color: var(--nutrition);
+  white-space: nowrap;
+}
+
+.remaining-callout.over .remaining-value {
+  color: var(--danger);
+}
+
+.remaining-value small {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.macro-split {
+  margin-top: 20px;
+}
+
+.macro-split h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+}
+
+.split-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-3);
+  gap: 2px;
+}
+
+.split-bar span {
+  height: 100%;
+  transition: width 0.6s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.split-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+  font-size: 0.86rem;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.split-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.image-preview img {
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.meal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.meal-thumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.meal-items {
+  display: block;
+  font-size: 0.82rem;
 }
 
 /* =========================================

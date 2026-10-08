@@ -348,6 +348,14 @@ router.get('/cross-module-correlation', authMiddleware, async (req, res) => {
           avgSleep: { $avg: '$sleepHours' },
           avgSteps: { $avg: '$steps' }
         }
+      },
+      {
+        $lookup: {
+          from: 'academicgoals',
+          localField: '_id',
+          foreignField: 'week',
+          as: 'goals'
+        }
       }
     ]);
 

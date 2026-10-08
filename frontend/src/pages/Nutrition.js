@@ -10,7 +10,8 @@ const EMPTY_MEAL = {
   calories: '',
   protein: '',
   carbs: '',
-  fat: ''
+  fat: '',
+  imageUrl: ''
 };
 
 const DEFAULT_GOALS = { calories: 2000, protein: 100, carbs: 250, fat: 70 };
@@ -122,7 +123,8 @@ function Nutrition() {
       calories: Number(meal.calories) || 0,
       protein: Number(meal.protein) || 0,
       carbs: Number(meal.carbs) || 0,
-      fat: Number(meal.fat) || 0
+      fat: Number(meal.fat) || 0,
+      imageUrl: (meal.imageUrl || '').trim()
     });
   };
 
@@ -228,6 +230,21 @@ function Nutrition() {
 
   const remaining = Math.round(goals.calories - totals.calories);
 
+  // Share of today's calories from each macro (protein & carbs 4 kcal/g, fat 9 kcal/g)
+  const macroCalories = {
+    protein: (totals.protein || 0) * 4,
+    carbs: (totals.carbs || 0) * 4,
+    fat: (totals.fat || 0) * 9
+  };
+  const macroTotal = macroCalories.protein + macroCalories.carbs + macroCalories.fat;
+  const macroSplit = macroTotal > 0
+    ? {
+        protein: Math.round((macroCalories.protein / macroTotal) * 100),
+        carbs: Math.round((macroCalories.carbs / macroTotal) * 100),
+        fat: Math.round((macroCalories.fat / macroTotal) * 100)
+      }
+    : null;
+
   return (
     <div className="page mod-nutrition">
       <div className="page-header">
@@ -307,10 +324,37 @@ function Nutrition() {
           })}
         </div>
 
-        {isToday && totals.calories > 0 && (
-          <p className="muted small">
-            {remaining > 0 ? `${remaining} kcal remaining today.` : `${Math.abs(remaining)} kcal over today's goal.`}
-          </p>
+        {isToday && (
+          <div className={`remaining-callout ${remaining < 0 ? 'over' : ''}`}>
+            <div>
+              <strong>{remaining < 0 ? 'Over your calorie goal' : 'Calories remaining today'}</strong>
+              <p className="muted small">
+                {remaining < 0
+                  ? `You're ${Math.abs(remaining)} kcal over your ${goals.calories} kcal target.`
+                  : `You can have about ${remaining} more kcal today.`}
+              </p>
+            </div>
+            <span className="remaining-value num">
+              {remaining < 0 ? `+${Math.abs(remaining)}` : remaining}<small> kcal</small>
+            </span>
+          </div>
+        )}
+
+        {macroSplit && (
+          <div className="macro-split">
+            <h4>Where today's calories come from</h4>
+            <div className="split-bar" role="img"
+              aria-label={`Protein ${macroSplit.protein}%, carbs ${macroSplit.carbs}%, fat ${macroSplit.fat}%`}>
+              <span style={{ width: `${macroSplit.protein}%`, background: 'var(--brand)' }} />
+              <span style={{ width: `${macroSplit.carbs}%`, background: 'var(--documents)' }} />
+              <span style={{ width: `${macroSplit.fat}%`, background: 'var(--academic)' }} />
+            </div>
+            <div className="split-legend">
+              <span><i style={{ background: 'var(--brand)' }} />Protein {macroSplit.protein}%</span>
+              <span><i style={{ background: 'var(--documents)' }} />Carbs {macroSplit.carbs}%</span>
+              <span><i style={{ background: 'var(--academic)' }} />Fat {macroSplit.fat}%</span>
+            </div>
+          </div>
         )}
       </div>
 
@@ -378,6 +422,15 @@ function Nutrition() {
               <label>Fat (g)
                 <input type="number" name="fat" min="0" step="0.1" value={form.fat} onChange={handleChange} />
               </label>
+              <label className="full">Photo URL <span className="muted">(optional)</span>
+                <input type="url" name="imageUrl" placeholder="https://…" value={form.imageUrl}
+                  onChange={handleChange} maxLength="1000" />
+              </label>
+              {/^https?:\/\//i.test(form.imageUrl) && (
+                <div className="full image-preview">
+                  <img src={form.imageUrl} alt="Meal preview" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                </div>
+              )}
             </div>
 
             <button type="submit" className="btn" disabled={saving}>
@@ -411,9 +464,18 @@ function Nutrition() {
               {group.items.map((meal) => (
                 <div key={meal._id} className="entry">
                   <div className="entry-header">
-                    <div>
-                      <strong>{meal.foodName}</strong>
-                      <small className="muted"> · {formatTime(meal.date)}</small>
+                    <div className="meal-title">
+                      {meal.imageUrl && (
+                        <img className="meal-thumb" src={meal.imageUrl} alt=""
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                      )}
+                      <div>
+                        <strong>{meal.foodName}</strong>
+                        <small className="muted"> · {formatTime(meal.date)}</small>
+                        {meal.items?.length > 0 && (
+                          <small className="muted meal-items">{meal.items.map((item) => item.name).join(', ')}</small>
+                        )}
+                      </div>
                     </div>
                     <div className="entry-actions">
                       <strong>{meal.calories} kcal</strong>

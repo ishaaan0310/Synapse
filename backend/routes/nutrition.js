@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
 const NutritionLog = require('../models/NutritionLog');
 const User = require('../models/User');
@@ -28,7 +29,11 @@ const parseMealInput = (body, { partial = false } = {}) => {
   }
 
   if (body.foodName !== undefined || !partial) {
-    const foodName = (body.foodName || '').trim();
+    let foodName = (body.foodName || '').trim();
+    // A multi-item meal can be named after its first item
+    if (!foodName && Array.isArray(body.items) && body.items[0]?.name) {
+      foodName = `${String(body.items[0].name).trim()} meal`;
+    }
     if (!foodName) return { error: 'Food name is required' };
     data.foodName = foodName.slice(0, 100);
   }
@@ -45,7 +50,32 @@ const parseMealInput = (body, { partial = false } = {}) => {
     data[field] = value;
   }
 
-  if (body.imageUrl !== undefined) data.imageUrl = body.imageUrl || '';
+  if (body.imageUrl !== undefined) {
+    const imageUrl = String(body.imageUrl || '').trim();
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) {
+      return { error: 'Image URL must start with http:// or https://' };
+    }
+    data.imageUrl = imageUrl.slice(0, 1000);
+  }
+
+  // Optional list of individual food items; totals are summed from them
+  // unless calories/macros were given explicitly
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    const items = body.items.slice(0, 20).map((item) => ({
+      name: String(item?.name || 'Item').trim().slice(0, 100) || 'Item',
+      calories: Math.max(0, Number(item?.calories) || 0),
+      protein: Math.max(0, Number(item?.protein) || 0),
+      carbs: Math.max(0, Number(item?.carbs) || 0),
+      fat: Math.max(0, Number(item?.fat) || 0)
+    }));
+    data.items = items;
+
+    for (const field of ['calories', 'protein', 'carbs', 'fat']) {
+      if (body[field] === undefined || body[field] === '' || Number(body[field]) === 0) {
+        data[field] = items.reduce((sum, item) => sum + item[field], 0);
+      }
+    }
+  }
 
   return { data };
 };
@@ -202,6 +232,46 @@ router.get('/weekly', authMiddleware, async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+// ==========================================
+// GET 7-DAY NUTRITION AGGREGATED TRENDS (MongoDB aggregation pipeline)
+// ==========================================
+router.get('/history-trends', authMiddleware, async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.userId);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const trends = await NutritionLog.aggregate([
+      {
+        $match: {
+          user: userId,
+          date: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+          totalCalories: { $sum: '$calories' },
+          totalProtein: { $sum: '$protein' },
+          totalCarbs: { $sum: '$carbs' },
+          totalFat: { $sum: '$fat' },
+          mealCount: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.json(trends);
+  } catch (error) {
+    console.error('Nutrition history trends error:', error);
+    res.status(500).json({
+      message: 'Failed to calculate nutrition trends',
+      error: error.message
+    });
   }
 });
 

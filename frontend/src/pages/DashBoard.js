@@ -53,6 +53,7 @@ function Dashboard() {
   const [twin, setTwin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [loggingWater, setLoggingWater] = useState(false);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -83,6 +84,20 @@ function Dashboard() {
       setTwin(response.data.profile);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not dismiss suggestion'));
+    }
+  };
+
+  // Quick action: log a glass of water (500 ml) without leaving the dashboard
+  const quickLogWater = async () => {
+    try {
+      setLoggingWater(true);
+      await api.post('/health', { waterIntake: 0.5, notes: 'Quick +500 ml water' });
+      toast.success('Logged 500 ml of water');
+      await fetchDashboard();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not log water'));
+    } finally {
+      setLoggingWater(false);
     }
   };
 
@@ -206,7 +221,12 @@ function Dashboard() {
           <div className="today-block">
             <div className="block-header">
               <h3>Latest health log</h3>
-              <Link to="/health" className="link">Log health</Link>
+              <div className="block-actions">
+                <button type="button" className="chip water-chip" onClick={quickLogWater} disabled={loggingWater}>
+                  <Icon name="water" size={15} />{loggingWater ? 'Logging…' : '+500 ml water'}
+                </button>
+                <Link to="/health" className="link">Log health</Link>
+              </div>
             </div>
 
             {latest ? (
@@ -339,6 +359,59 @@ function Dashboard() {
                 </li>
               ))}
             </ul>
+          )}
+        </section>
+      </div>
+
+      {/* ============ RECENT ACTIVITY ============ */}
+      <div className="two-col section">
+        <section className="card mod-health">
+          <div className="card-header">
+            <h3><Icon name="health" size={20} className="title-icon" /> Recent health logs</h3>
+            <Link to="/health" className="link">All logs</Link>
+          </div>
+          {data.recentActivity?.health?.length > 0 ? (
+            <ul className="activity">
+              {data.recentActivity.health.map((item) => (
+                <li key={item._id}>
+                  <div>
+                    <strong>
+                      {[
+                        item.sleepHours != null && `${item.sleepHours}h sleep`,
+                        item.steps != null && `${item.steps.toLocaleString()} steps`,
+                        item.waterIntake != null && `${item.waterIntake}L water`
+                      ].filter(Boolean).join(', ') || 'Health entry'}
+                    </strong>
+                    {item.heartRate != null && <small className="muted">{item.heartRate} bpm resting heart rate</small>}
+                  </div>
+                  <time className="muted small">{new Date(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</time>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No health logs yet.</p>
+          )}
+        </section>
+
+        <section className="card mod-nutrition">
+          <div className="card-header">
+            <h3><Icon name="nutrition" size={20} className="title-icon" /> Recent meals</h3>
+            <Link to="/nutrition" className="link">All meals</Link>
+          </div>
+          {data.recentActivity?.meals?.length > 0 ? (
+            <ul className="activity">
+              {data.recentActivity.meals.map((item) => (
+                <li key={item._id}>
+                  <div>
+                    <strong>{item.foodName}</strong>
+                    <small className="muted cap">{item.mealType}, {item.protein || 0}g protein</small>
+                  </div>
+                  <span className="num small"><strong>{item.calories}</strong> kcal</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No meals logged yet.</p>
           )}
         </section>
       </div>
