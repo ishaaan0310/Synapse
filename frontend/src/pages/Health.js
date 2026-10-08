@@ -1,93 +1,81 @@
-import React, { useEffect, useState } from 'react';
-import api from '../utils/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import api, { getErrorMessage, toDateInput } from '../utils/api';
+import { useToast } from '../components/Toast';
+import { LineChart, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
+
+const EMPTY_FORM = {
+  date: '',
+  weight: '',
+  height: '',
+  sleepHours: '',
+  sleepQuality: '',
+  steps: '',
+  heartRate: '',
+  waterIntake: '',
+  notes: ''
+};
+
+const METRICS = {
+  sleepHours: { label: 'Sleep', unit: 'h', color: 'var(--sleep)', target: 7, targetLabel: 'Goal 7h' },
+  steps: { label: 'Steps', unit: 'steps', color: 'var(--health)', target: 8000, targetLabel: 'Goal 8k' },
+  weight: { label: 'Weight', unit: 'kg', color: 'var(--brand)' },
+  heartRate: { label: 'Heart rate', unit: 'bpm', color: 'var(--danger)' },
+  waterIntake: { label: 'Water', unit: 'L', color: 'var(--water)', target: 2.5, targetLabel: 'Goal 2.5L' }
+};
+
+const RANGES = [7, 30, 90];
 
 function Health() {
-  const [form, setForm] = useState({
-    weight: '',
-    height: '',
-    sleepHours: '',
-    sleepQuality: 'good',
-    steps: '',
-    heartRate: '',
-    waterIntake: '',
-    source: 'manual',
-    notes: ''
-  });
+  const toast = useToast();
+
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [showMore, setShowMore] = useState(false);
 
   const [logs, setLogs] = useState([]);
+  const [trends, setTrends] = useState(null);
   const [alerts, setAlerts] = useState([]);
-  const [trends, setTrends] = useState({ last7Days: null, last30Days: null });
+
+  const [metric, setMetric] = useState('sleepHours');
+  const [range, setRange] = useState(30);
+  const [visibleCount, setVisibleCount] = useState(8);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [syncing, setSyncing] = useState('');
   const [error, setError] = useState('');
-  const [syncSuccess, setSyncSuccess] = useState('');
 
   // =====================================
-  // FETCH HEALTH LOGS, ALERTS & TRENDS
+  // FETCH LOGS + TRENDS + ALERTS
   // =====================================
-  const fetchLogs = async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      setLoading(true);
       setError('');
 
-      const [logsRes, alertsRes, trendsRes] = await Promise.all([
-        api.get('/health'),
-        api.get('/health/alerts'),
-        api.get('/health/trends')
+      const [logsRes, trendsRes, alertsRes] = await Promise.all([
+        api.get('/health', { params: { days: 90 } }),
+        api.get('/health/trends'),
+        api.get('/health/alerts')
       ]);
 
-      setLogs(logsRes.data);
+      // The API returns { success, count, metrics } (not a plain array)
+      setLogs(logsRes.data.metrics || []);
+      setTrends(trendsRes.data);
       setAlerts(alertsRes.data.alerts || []);
-      setTrends(trendsRes.data || { last7Days: null, last30Days: null });
     } catch (err) {
-      console.error('Failed to fetch health logs:', err);
-
-      setError(
-        err.response?.data?.message ||
-        'Unable to load health logs'
-      );
+      console.error('Failed to fetch health data:', err);
+      setError(getErrorMessage(err, 'Unable to load health logs'));
     } finally {
       setLoading(false);
     }
-  };
-
-  // Fetch logs when page opens
-  useEffect(() => {
-    fetchLogs();
   }, []);
 
-  // =====================================
-  // SYNC WEARABLE DEVICE MOCK
-  // =====================================
-  const handleWearableSync = async (provider) => {
-    try {
-      setSyncing(true);
-      setError('');
-      setSyncSuccess('');
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
 
-      const response = await api.post('/health/sync-wearable', { provider });
-
-      setSyncSuccess(response.data.message);
-      await fetchLogs();
-
-      setTimeout(() => setSyncSuccess(''), 4000);
-    } catch (err) {
-      console.error('Sync wearable error:', err);
-      setError(err.response?.data?.message || 'Failed to sync wearable data');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  // =====================================
-  // HANDLE FORM CHANGE
-  // =====================================
   const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value
-    });
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   // =====================================
@@ -96,408 +84,333 @@ function Health() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    const payload = {};
+    ['weight', 'height', 'sleepHours', 'steps', 'heartRate', 'waterIntake'].forEach((field) => {
+      if (form[field] !== '') payload[field] = Number(form[field]);
+    });
+    if (form.sleepQuality) payload.sleepQuality = form.sleepQuality;
+    if (form.notes.trim()) payload.notes = form.notes.trim();
+
+    // Back-dated entry: store it at midday local time on that date
+    if (form.date && form.date !== toDateInput()) {
+      payload.date = new Date(`${form.date}T12:00:00`).toISOString();
+    }
+
+    if (Object.keys(payload).filter((k) => !['notes', 'date', 'sleepQuality'].includes(k)).length === 0) {
+      setError('Enter at least one metric.');
+      return;
+    }
+
     try {
       setSaving(true);
       setError('');
 
-      await api.post('/health', {
-        weight: form.weight ? Number(form.weight) : undefined,
-        height: form.height ? Number(form.height) : undefined,
-        sleepHours: Number(form.sleepHours),
-        sleepQuality: form.sleepQuality,
-        steps: Number(form.steps),
-        heartRate: Number(form.heartRate),
-        waterIntake: form.waterIntake ? Number(form.waterIntake) : undefined,
-        source: form.source,
-        notes: form.notes
-      });
+      await api.post('/health', payload);
 
-      // Clear form
-      setForm({
-        weight: '',
-        height: '',
-        sleepHours: '',
-        sleepQuality: 'good',
-        steps: '',
-        heartRate: '',
-        waterIntake: '',
-        source: 'manual',
-        notes: ''
-      });
-
-      // Refresh logs
-      await fetchLogs();
-
+      setForm(EMPTY_FORM);
+      toast.success('Health metric logged');
+      await fetchAll();
     } catch (err) {
       console.error('Health save error:', err);
-
-      setError(
-        err.response?.data?.message ||
-        'Failed to save health metric'
-      );
+      setError(getErrorMessage(err, 'Failed to save health metric'));
     } finally {
       setSaving(false);
     }
   };
 
   // =====================================
-  // FORMAT DATE
+  // WEARABLE SYNC (demo data from backend)
   // =====================================
-  const formatDate = (date) => {
-    return new Date(date).toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    });
+  const syncWearable = async (provider) => {
+    try {
+      setSyncing(provider);
+      const response = await api.post('/health/sync-wearable', { provider });
+      toast.success(response.data.message || 'Synced');
+      await fetchAll();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Sync failed'));
+    } finally {
+      setSyncing('');
+    }
   };
 
+  // =====================================
+  // DELETE
+  // =====================================
+  const deleteLog = async (id) => {
+    if (!window.confirm('Delete this health log?')) return;
+
+    try {
+      await api.delete(`/health/${id}`);
+      setLogs((current) => current.filter((log) => log._id !== id));
+      toast.success('Health log deleted');
+      // Trends/alerts depend on the logs
+      fetchAll();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not delete log'));
+    }
+  };
+
+  // =====================================
+  // CHART DATA
+  // =====================================
+  const chartData = useMemo(() => {
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    since.setDate(since.getDate() - (range - 1));
+
+    return logs
+      .filter((log) => new Date(log.date) >= since && typeof log[metric] === 'number')
+      .slice()
+      .reverse()
+      .map((log) => ({
+        label: new Date(log.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+        value: log[metric]
+      }));
+  }, [logs, metric, range]);
+
+  const latestBmi = useMemo(() => {
+    const withBoth = logs.find((log) => log.weight && log.height);
+    if (!withBoth) return null;
+    const bmi = withBoth.weight / ((withBoth.height / 100) ** 2);
+    let category = 'Normal';
+    if (bmi < 18.5) category = 'Underweight';
+    else if (bmi >= 25 && bmi < 30) category = 'Overweight';
+    else if (bmi >= 30) category = 'Obese';
+    return { value: bmi.toFixed(1), category };
+  }, [logs]);
+
+  const formatDate = (date) =>
+    new Date(date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+
+  const t7 = trends?.last7Days;
+  const t30 = trends?.last30Days;
+
   return (
-    <div className="page">
+    <div className="page mod-health">
+      <div className="page-header">
+        <h2><span className="page-icon"><Icon name="health" size={22} /></span>Health</h2>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-        <h2>Health & Fitness</h2>
-
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="btn"
-            disabled={syncing}
-            onClick={() => handleWearableSync('healthkit')}
-            style={{ background: '#ff2d55', color: '#fff', fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-          >
-            {syncing ? 'Syncing...' : '🍏 Sync Apple Health'}
+        <div className="button-row">
+          <button className="btn btn-secondary" disabled={!!syncing} onClick={() => syncWearable('fitbit')}>
+            <Icon name="watch" size={18} />{syncing === 'fitbit' ? 'Syncing…' : 'Sync Fitbit'}
           </button>
-
-          <button
-            type="button"
-            className="btn"
-            disabled={syncing}
-            onClick={() => handleWearableSync('fitbit')}
-            style={{ background: '#00b0b9', color: '#fff', fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-          >
-            {syncing ? 'Syncing...' : '⌚ Sync Fitbit'}
+          <button className="btn btn-secondary" disabled={!!syncing} onClick={() => syncWearable('healthkit')}>
+            <Icon name="sync" size={18} />{syncing === 'healthkit' ? 'Syncing…' : 'Sync HealthKit'}
           </button>
         </div>
       </div>
 
-      {syncSuccess && (
-        <div style={{ padding: '0.85rem 1.25rem', background: '#e6fffa', border: '1px solid #319795', color: '#234e52', borderRadius: '10px', marginBottom: '1.5rem', fontWeight: 'bold' }}>
-          ✅ {syncSuccess}
+      {alerts.length > 0 && (
+        <div className="alerts">
+          {alerts.map((alert, i) => (
+            <div key={i} className={`alert alert-${alert.type}`}>
+              <Icon name={alert.type === 'info' ? 'info' : 'alert'} size={18} />
+              <span>{alert.text.replace(/^[^\p{L}\p{N}]+/u, '')}</span>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* ================================
-          HEALTH ALERTS BANNER
-      ================================= */}
-      {alerts.length > 0 && (
-        <div className="card" style={{ borderLeft: '5px solid #ed8936', background: '#fffaf0', marginBottom: '1.5rem' }}>
-          <h3 style={{ color: '#c05621', marginTop: 0 }}>🚨 Health Alerts & Recommendations</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
-            {alerts.map((alert, idx) => (
-              <div
-                key={idx}
-                style={{
-                  padding: '0.6rem 1rem',
-                  borderRadius: '8px',
-                  background: alert.type === 'warning' ? '#feebc8' : alert.type === 'danger' ? '#fed7d7' : '#ebf8ff',
-                  color: alert.type === 'warning' ? '#7b341e' : alert.type === 'danger' ? '#9b2c2c' : '#2b6cb0',
-                  fontWeight: '500',
-                  fontSize: '0.9rem'
-                }}
+      {/* ============ TRENDS ============ */}
+      <div className="stats-grid">
+        <div className="stat-card" style={{ '--module': 'var(--sleep)' }}>
+          <span className="stat-icon"><Icon name="sleep" size={18} /></span>
+          <h3>Average sleep</h3>
+          <p className="stat-number">{t7 ? `${t7.avgSleep}h` : '–'}</p>
+          <small className="muted">7 days{t30 ? ` · 30d: ${t30.avgSleep}h` : ''}</small>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon"><Icon name="steps" size={18} /></span>
+          <h3>Average steps</h3>
+          <p className="stat-number">{t7 ? t7.avgSteps.toLocaleString() : '–'}</p>
+          <small className="muted">7 days{t30 ? ` · 30d: ${t30.avgSteps.toLocaleString()}` : ''}</small>
+        </div>
+        <div className="stat-card" style={{ '--module': 'var(--water)' }}>
+          <span className="stat-icon"><Icon name="water" size={18} /></span>
+          <h3>Average water</h3>
+          <p className="stat-number">{t7 ? `${t7.avgWater}L` : '–'}</p>
+          <small className="muted">7 days{t30 ? ` · 30d: ${t30.avgWater}L` : ''}</small>
+        </div>
+        <div className="stat-card" style={{ '--module': 'var(--brand)' }}>
+          <span className="stat-icon"><Icon name="weight" size={18} /></span>
+          <h3>BMI</h3>
+          <p className="stat-number">{latestBmi ? latestBmi.value : '–'}</p>
+          <small className="muted">{latestBmi ? latestBmi.category : 'log weight + height'}</small>
+        </div>
+      </div>
+
+      {/* ============ CHART ============ */}
+      <div className="card section">
+        <div className="card-header wrap">
+          <div className="tabs">
+            {Object.entries(METRICS).map(([key, m]) => (
+              <button
+                key={key}
+                type="button"
+                className={`tab ${metric === key ? 'active' : ''}`}
+                onClick={() => setMetric(key)}
               >
-                {alert.text}
-              </div>
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="tabs">
+            {RANGES.map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={`tab ${range === r ? 'active' : ''}`}
+                onClick={() => setRange(r)}
+              >
+                {r}d
+              </button>
             ))}
           </div>
         </div>
-      )}
-
-      {/* ================================
-          HEALTH TRENDS ANALYTICS
-      ================================= */}
-      {(trends.last7Days || trends.last30Days) && (
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <h3>📊 Health & Fitness Analytics (Aggregated Trends)</h3>
-          <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1rem' }}>
-            MongoDB aggregation statistics computed across your historical logs.
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-
-            {trends.last7Days && (
-              <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                <h4 style={{ margin: '0 0 0.75rem 0', color: '#475569' }}>📅 Past 7 Days</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
-                  <div>😴 <strong>Avg Sleep:</strong> {trends.last7Days.avgSleep} hrs</div>
-                  <div>🚶 <strong>Avg Steps:</strong> {trends.last7Days.avgSteps.toLocaleString()}</div>
-                  <div>❤️ <strong>Avg HR:</strong> {trends.last7Days.avgHeartRate} BPM</div>
-                  <div>💧 <strong>Avg Water:</strong> {trends.last7Days.avgWater} L</div>
-                </div>
-                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
-                  Logs recorded: {trends.last7Days.totalLogs}
-                </div>
-              </div>
-            )}
-
-            {trends.last30Days && (
-              <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                <h4 style={{ margin: '0 0 0.75rem 0', color: '#475569' }}>📆 Past 30 Days</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
-                  <div>😴 <strong>Avg Sleep:</strong> {trends.last30Days.avgSleep} hrs</div>
-                  <div>🚶 <strong>Avg Steps:</strong> {trends.last30Days.avgSteps.toLocaleString()}</div>
-                  <div>❤️ <strong>Avg HR:</strong> {trends.last30Days.avgHeartRate} BPM</div>
-                  <div>💧 <strong>Avg Water:</strong> {trends.last30Days.avgWater} L</div>
-                </div>
-                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
-                  Logs recorded: {trends.last30Days.totalLogs}
-                </div>
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
-
-      {/* ================================
-          LOG FORM
-      ================================= */}
-      <div className="card">
-
-        <h3>Log Health Metric</h3>
-
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Weight (kg)</label>
-              <input
-                type="number"
-                step="0.1"
-                name="weight"
-                placeholder="e.g. 70.5"
-                value={form.weight}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Height (cm)</label>
-              <input
-                type="number"
-                name="height"
-                placeholder="e.g. 175"
-                value={form.height}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Sleep Hours *</label>
-              <input
-                type="number"
-                step="0.5"
-                name="sleepHours"
-                placeholder="e.g. 7.5"
-                value={form.sleepHours}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Sleep Quality</label>
-              <select
-                name="sleepQuality"
-                value={form.sleepQuality}
-                onChange={handleChange}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #ccc' }}
-              >
-                <option value="poor">Poor 😴</option>
-                <option value="fair">Fair 😐</option>
-                <option value="good">Good 🙂</option>
-                <option value="excellent">Excellent 🌟</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Daily Steps *</label>
-              <input
-                type="number"
-                name="steps"
-                placeholder="e.g. 8500"
-                value={form.steps}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Heart Rate (BPM) *</label>
-              <input
-                type="number"
-                name="heartRate"
-                placeholder="e.g. 72"
-                value={form.heartRate}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Water Intake (L)</label>
-              <input
-                type="number"
-                step="0.1"
-                name="waterIntake"
-                placeholder="e.g. 2.5"
-                value={form.waterIntake}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Data Source</label>
-              <select
-                name="source"
-                value={form.source}
-                onChange={handleChange}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #ccc' }}
-              >
-                <option value="manual">Manual Entry ✍️</option>
-                <option value="fitbit">Fitbit ⌚</option>
-                <option value="healthkit">Apple HealthKit 🍏</option>
-              </select>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>Notes</label>
-            <input
-              type="text"
-              name="notes"
-              placeholder="e.g. Morning workout included 30m cardio"
-              value={form.notes}
-              onChange={handleChange}
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="btn"
-            disabled={saving}
-            style={{ marginTop: '1rem' }}
-          >
-            {saving ? 'Saving...' : 'Log Metric'}
-          </button>
-
-        </form>
-
-      </div>
-
-      {/* ================================
-          HEALTH LOGS
-      ================================= */}
-      <div className="card">
-
-        <h3>Recent Health Logs</h3>
 
         {loading ? (
-          <p>Loading health logs...</p>
-        ) : logs.length === 0 ? (
-          <p>No health logs yet. Add your first metric above.</p>
+          <Skeleton height={240} />
         ) : (
-          <div>
+          <LineChart
+            data={chartData}
+            color={METRICS[metric].color}
+            unit={METRICS[metric].unit}
+            target={METRICS[metric].target}
+            targetLabel={METRICS[metric].targetLabel}
+          />
+        )}
+      </div>
 
-            {logs.map((log) => (
-              <div
-                key={log._id}
-                style={{
-                  padding: '1.25rem',
-                  marginBottom: '1rem',
-                  borderRadius: '12px',
-                  background: '#f7f7ff',
-                  border: '1px solid #e5e5e5'
-                }}
-              >
+      {/* ============ LOG FORM ============ */}
+      <div className="card section">
+        <h3>Log a health entry</h3>
+        <p className="muted small">Fill in whatever you have. Every field is optional.</p>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <strong>
-                    📅 {formatDate(log.date)}
-                  </strong>
-                  <span style={{
-                    fontSize: '0.8rem',
-                    padding: '0.25rem 0.6rem',
-                    borderRadius: '20px',
-                    background: log.source === 'fitbit' ? '#00b0b9' : log.source === 'healthkit' ? '#ff2d55' : '#667eea',
-                    color: '#fff',
-                    textTransform: 'uppercase',
-                    fontWeight: 'bold'
-                  }}>
-                    {log.source || 'manual'}
-                  </span>
+        {error && <div className="error-message">{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <label>
+              Sleep (hours)
+              <input type="number" name="sleepHours" placeholder="e.g. 7.5" step="0.1" min="0" max="24"
+                value={form.sleepHours} onChange={handleChange} />
+            </label>
+
+            <label>
+              Sleep quality
+              <select name="sleepQuality" value={form.sleepQuality} onChange={handleChange}>
+                <option value="">–</option>
+                <option value="poor">Poor</option>
+                <option value="fair">Fair</option>
+                <option value="good">Good</option>
+                <option value="excellent">Excellent</option>
+              </select>
+            </label>
+
+            <label>
+              Steps
+              <input type="number" name="steps" placeholder="e.g. 8000" min="0"
+                value={form.steps} onChange={handleChange} />
+            </label>
+
+            <label>
+              Water (litres)
+              <input type="number" name="waterIntake" placeholder="e.g. 2.5" step="0.1" min="0" max="15"
+                value={form.waterIntake} onChange={handleChange} />
+            </label>
+
+            <label>
+              Heart rate (BPM)
+              <input type="number" name="heartRate" placeholder="e.g. 72" min="20" max="250"
+                value={form.heartRate} onChange={handleChange} />
+            </label>
+
+            <label>
+              Weight (kg)
+              <input type="number" name="weight" placeholder="e.g. 68.5" step="0.1" min="1" max="400"
+                value={form.weight} onChange={handleChange} />
+            </label>
+          </div>
+
+          <button type="button" className="link-btn" onClick={() => setShowMore((s) => !s)}>
+            {showMore ? '− Fewer options' : '+ Height, date & notes'}
+          </button>
+
+          {showMore && (
+            <div className="form-grid">
+              <label>
+                Height (cm)
+                <input type="number" name="height" placeholder="e.g. 172" min="30" max="260"
+                  value={form.height} onChange={handleChange} />
+              </label>
+
+              <label>
+                Date
+                <input type="date" name="date" max={toDateInput()} value={form.date} onChange={handleChange} />
+              </label>
+
+              <label className="full">
+                Notes
+                <textarea name="notes" rows="2" maxLength="500" placeholder="How are you feeling?"
+                  value={form.notes} onChange={handleChange} />
+              </label>
+            </div>
+          )}
+
+          <button type="submit" className="btn" disabled={saving}>
+            {saving ? 'Saving…' : 'Save entry'}
+          </button>
+        </form>
+      </div>
+
+      {/* ============ HISTORY ============ */}
+      <div className="card section">
+        <h3>Recent logs</h3>
+
+        {loading ? (
+          <Skeleton lines={4} />
+        ) : logs.length === 0 ? (
+          <div className="empty-state small">
+            <Icon name="chart" size={32} className="empty-icon" />
+            <p>No health logs yet. Add your first metric above, or sync a wearable.</p>
+          </div>
+        ) : (
+          <>
+            {logs.slice(0, visibleCount).map((log) => (
+              <div key={log._id} className="entry">
+                <div className="entry-header">
+                  <strong>{formatDate(log.date)}</strong>
+                  <div className="entry-actions">
+                    {log.source && log.source !== 'manual' && (
+                      <span className="pill"><Icon name="watch" size={14} />{log.source === 'fitbit' ? 'Fitbit' : 'HealthKit'}</span>
+                    )}
+                    <button type="button" className="icon-btn small danger" onClick={() => deleteLog(log._id)}
+                      title="Delete" aria-label="Delete log"><Icon name="trash" size={16} /></button>
+                  </div>
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns:
-                      'repeat(auto-fit, minmax(140px, 1fr))',
-                    gap: '0.75rem',
-                    marginTop: '1rem'
-                  }}
-                >
-
-                  <div>
-                    ❤️ <strong>Heart Rate</strong>
-                    <br />
-                    {log.heartRate || '-'} BPM
-                  </div>
-
-                  <div>
-                    😴 <strong>Sleep</strong>
-                    <br />
-                    {log.sleepHours || '-'} hrs ({log.sleepQuality || 'good'})
-                  </div>
-
-                  <div>
-                    🚶 <strong>Steps</strong>
-                    <br />
-                    {log.steps ? log.steps.toLocaleString() : '-'}
-                  </div>
-
-                  <div>
-                    ⚖️ <strong>Weight / Height</strong>
-                    <br />
-                    {log.weight ? `${log.weight} kg` : '-'} {log.height ? `/ ${log.height} cm` : ''}
-                  </div>
-
-                  <div>
-                    💧 <strong>Water Intake</strong>
-                    <br />
-                    {log.waterIntake ? `${log.waterIntake} L` : '-'}
-                  </div>
-
+                <div className="entry-grid">
+                  <div className="metric"><span><Icon name="sleep" size={15} />Sleep</span><strong className="num">{log.sleepHours ?? '–'} h</strong>{log.sleepQuality && <small className="muted cap">{log.sleepQuality}</small>}</div>
+                  <div className="metric"><span><Icon name="steps" size={15} />Steps</span><strong className="num">{log.steps ? log.steps.toLocaleString() : '–'}</strong></div>
+                  <div className="metric"><span><Icon name="water" size={15} />Water</span><strong className="num">{log.waterIntake ?? '–'} L</strong></div>
+                  <div className="metric"><span><Icon name="heart" size={15} />Heart rate</span><strong className="num">{log.heartRate ?? '–'} bpm</strong></div>
+                  <div className="metric"><span><Icon name="weight" size={15} />Weight</span><strong className="num">{log.weight ?? '–'} kg</strong></div>
                 </div>
 
-                {log.notes && (
-                  <div style={{ marginTop: '0.75rem', fontSize: '0.9rem', fontStyle: 'italic', color: '#555' }}>
-                    📝 Note: {log.notes}
-                  </div>
-                )}
-
+                {log.notes && <p className="entry-notes"><Icon name="note" size={15} />{log.notes}</p>}
               </div>
             ))}
 
-          </div>
+            {logs.length > visibleCount && (
+              <button type="button" className="btn btn-secondary" onClick={() => setVisibleCount((c) => c + 10)}>
+                Show more ({logs.length - visibleCount} left)
+              </button>
+            )}
+          </>
         )}
-
       </div>
-
     </div>
   );
 }

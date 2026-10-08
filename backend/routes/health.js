@@ -5,79 +5,139 @@ const mongoose = require('mongoose');
 const HealthMetric = require('../models/HealthMetrics');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// ===============================
+// ==========================================
+// VALIDATION HELPER
+// Converts form values to numbers and checks realistic ranges.
+// Returns { data } or { error }.
+// ==========================================
+const NUMERIC_FIELDS = {
+  weight: { min: 1, max: 400, label: 'Weight (kg)' },
+  height: { min: 30, max: 260, label: 'Height (cm)' },
+  sleepHours: { min: 0, max: 24, label: 'Sleep hours' },
+  steps: { min: 0, max: 150000, label: 'Steps' },
+  heartRate: { min: 20, max: 250, label: 'Heart rate' },
+  waterIntake: { min: 0, max: 15, label: 'Water intake (L)' }
+};
+
+const SLEEP_QUALITIES = ['poor', 'fair', 'good', 'excellent'];
+
+const parseHealthInput = (body) => {
+  const data = {};
+
+  for (const [field, rule] of Object.entries(NUMERIC_FIELDS)) {
+    const raw = body[field];
+    if (raw === undefined || raw === null || raw === '') continue;
+
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < rule.min || value > rule.max) {
+      return { error: `${rule.label} must be between ${rule.min} and ${rule.max}` };
+    }
+    data[field] = value;
+  }
+
+  if (body.sleepQuality) {
+    if (!SLEEP_QUALITIES.includes(body.sleepQuality)) {
+      return { error: 'Invalid sleep quality' };
+    }
+    data.sleepQuality = body.sleepQuality;
+  }
+
+  if (typeof body.notes === 'string') {
+    data.notes = body.notes.trim().slice(0, 500);
+  }
+
+  if (body.date) {
+    const date = new Date(body.date);
+    if (Number.isNaN(date.getTime()) || date > new Date(Date.now() + 60 * 1000)) {
+      return { error: 'Date cannot be in the future' };
+    }
+    data.date = date;
+  }
+
+  return { data };
+};
+
 // SAVE HEALTH METRIC
-// ===============================
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const {
-      weight,
-      sleepHours,
-      steps,
-      heartRate,
-      sleepQuality,
-      height,
-      waterIntake,
-      source,
-      notes
-    } = req.body;
+    const { data, error } = parseHealthInput(req.body);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const hasMetric = Object.keys(NUMERIC_FIELDS).some((f) => data[f] !== undefined);
+    if (!hasMetric) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter at least one metric'
+      });
+    }
 
     const metric = new HealthMetric({
       user: req.userId,
-      weight,
-      sleepHours,
-      steps,
-      heartRate,
-      sleepQuality,
-      height,
-      waterIntake,
-      source: source || 'manual',
-      notes,
-      date: new Date()
+      ...data,
+      source: 'manual',
+      date: data.date || new Date()
     });
 
     await metric.save();
 
-    res.status(201).json({
-      message: 'Health metric logged!',
+    return res.status(201).json({
+      success: true,
+      message: 'Health metric logged successfully',
       metric
     });
-  } catch (error) {
-    console.error('Health save error:', error);
 
-    res.status(500).json({
-      message: 'Failed to save health metric',
-      error: error.message
+  } catch (error) {
+    console.error('Health Save Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to save health metric'
     });
   }
 });
 
-// ===============================
 // GET MY HEALTH LOGS
-// ===============================
 router.get('/', authMiddleware, async (req, res) => {
   try {
+    // Optional ?days=30 filter for charts
+    const filter = { user: req.userId };
+    const days = Number(req.query.days);
+    if (Number.isFinite(days) && days > 0) {
+      const since = new Date();
+      since.setHours(0, 0, 0, 0);
+      since.setDate(since.getDate() - (days - 1));
+      filter.date = { $gte: since };
+    }
+
     const metrics = await HealthMetric
-      .find({ user: req.userId })
-      .sort({ date: -1 });
+      .find(filter)
+      .sort({ date: -1 })
+      .limit(500);
 
-    res.json(metrics);
+    return res.status(200).json({
+      success: true,
+      count: metrics.length,
+      metrics
+    });
+
   } catch (error) {
-    console.error('Health fetch error:', error);
+    console.error('Health Fetch Error:', error);
 
-    res.status(500).json({
-      message: 'Failed to fetch health logs',
-      error: error.message
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch health logs'
     });
   }
 });
 
-// ===============================
-// HEALTH TRENDS AGGREGATION
-// ===============================
+// HEALTH TRENDS
 router.get('/trends', authMiddleware, async (req, res) => {
   try {
     const userId = new mongoose.Types.ObjectId(req.userId);
+
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -86,7 +146,12 @@ router.get('/trends', authMiddleware, async (req, res) => {
 
     const [trends7Days, trends30Days] = await Promise.all([
       HealthMetric.aggregate([
-        { $match: { user: userId, date: { $gte: sevenDaysAgo } } },
+        {
+          $match: {
+            user: userId,
+            date: { $gte: sevenDaysAgo }
+          }
+        },
         {
           $group: {
             _id: null,
@@ -98,8 +163,14 @@ router.get('/trends', authMiddleware, async (req, res) => {
           }
         }
       ]),
+
       HealthMetric.aggregate([
-        { $match: { user: userId, date: { $gte: thirtyDaysAgo } } },
+        {
+          $match: {
+            user: userId,
+            date: { $gte: thirtyDaysAgo }
+          }
+        },
         {
           $group: {
             _id: null,
@@ -113,34 +184,35 @@ router.get('/trends', authMiddleware, async (req, res) => {
       ])
     ]);
 
-    res.json({
-      last7Days: trends7Days[0] ? {
-        avgSleep: Number((trends7Days[0].avgSleep || 0).toFixed(1)),
-        avgSteps: Math.round(trends7Days[0].avgSteps || 0),
-        avgHeartRate: Math.round(trends7Days[0].avgHeartRate || 0),
-        avgWater: Number((trends7Days[0].avgWater || 0).toFixed(1)),
-        totalLogs: trends7Days[0].totalLogs
-      } : null,
-      last30Days: trends30Days[0] ? {
-        avgSleep: Number((trends30Days[0].avgSleep || 0).toFixed(1)),
-        avgSteps: Math.round(trends30Days[0].avgSteps || 0),
-        avgHeartRate: Math.round(trends30Days[0].avgHeartRate || 0),
-        avgWater: Number((trends30Days[0].avgWater || 0).toFixed(1)),
-        totalLogs: trends30Days[0].totalLogs
-      } : null
+    const formatTrend = (trend) => {
+      if (!trend) return null;
+
+      return {
+        avgSleep: Number((trend.avgSleep || 0).toFixed(1)),
+        avgSteps: Math.round(trend.avgSteps || 0),
+        avgHeartRate: Math.round(trend.avgHeartRate || 0),
+        avgWater: Number((trend.avgWater || 0).toFixed(1)),
+        totalLogs: trend.totalLogs
+      };
+    };
+
+    return res.status(200).json({
+      success: true,
+      last7Days: formatTrend(trends7Days[0]),
+      last30Days: formatTrend(trends30Days[0])
     });
+
   } catch (error) {
-    console.error('Health trends error:', error);
-    res.status(500).json({
-      message: 'Failed to calculate health trends',
-      error: error.message
+    console.error('Health Trends Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to calculate health trends'
     });
   }
 });
 
-// ===============================
 // HEALTH ALERTS
-// ===============================
 router.get('/alerts', authMiddleware, async (req, res) => {
   try {
     const latest = await HealthMetric
@@ -151,110 +223,197 @@ router.get('/alerts', authMiddleware, async (req, res) => {
 
     if (latest) {
       if (latest.sleepHours && latest.sleepHours < 6) {
-        alerts.push({ type: 'warning', text: `😴 Sleep duration (${latest.sleepHours}h) is below target of 6.0 hours.` });
+        alerts.push({
+          type: 'warning',
+          text: `😴 Sleep duration (${latest.sleepHours}h) is below target of 6.0 hours.`
+        });
       }
 
       if (latest.steps && latest.steps < 5000) {
-        alerts.push({ type: 'warning', text: `🚶 Daily steps (${latest.steps.toLocaleString()}) are below active threshold of 5,000 steps.` });
+        alerts.push({
+          type: 'warning',
+          text: `🚶 Daily steps (${latest.steps.toLocaleString()}) are below active threshold of 5,000 steps.`
+        });
       }
 
       if (latest.waterIntake && latest.waterIntake < 2) {
-        alerts.push({ type: 'info', text: `💧 Water intake (${latest.waterIntake}L) is below recommended 2.0 liters.` });
+        alerts.push({
+          type: 'info',
+          text: `💧 Water intake (${latest.waterIntake}L) is below recommended 2.0 liters.`
+        });
       }
 
       if (latest.heartRate && latest.heartRate > 100) {
-        alerts.push({ type: 'danger', text: `❤️ Elevated resting heart rate detected (${latest.heartRate} BPM).` });
+        alerts.push({
+          type: 'danger',
+          text: `❤️ Elevated resting heart rate detected (${latest.heartRate} BPM).`
+        });
       }
     }
 
-    res.json({ alerts });
-  } catch (error) {
-    console.error('Health alerts error:', error);
+    return res.status(200).json({
+      success: true,
+      alerts
+    });
 
-    res.status(500).json({
-      message: 'Failed to fetch health alerts',
-      error: error.message
+  } catch (error) {
+    console.error('Health Alerts Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch health alerts'
     });
   }
 });
 
-// ===============================
-// WEARABLE DATA SYNC MOCK
-// ===============================
+// WEARABLE DATA SYNC (DEMO)
+// Generates realistic sample data. Swap this for the real Fitbit /
+// Apple HealthKit APIs once you have API credentials.
 router.post('/sync-wearable', authMiddleware, async (req, res) => {
   try {
-    const { provider } = req.body; // 'fitbit' or 'healthkit'
-    const source = provider === 'fitbit' ? 'fitbit' : 'healthkit';
+    const { provider } = req.body;
 
-    // Simulated data generation
-    const mockSteps = Math.floor(Math.random() * 4000) + 6500; // 6500 - 10500
-    const mockSleep = Number((Math.random() * 2.5 + 6.5).toFixed(1)); // 6.5 - 9.0 hrs
-    const mockHeartRate = Math.floor(Math.random() * 15) + 62; // 62 - 77 BPM
-    const mockWater = Number((Math.random() * 1.5 + 2.0).toFixed(1)); // 2.0 - 3.5 L
-    const mockWeight = 70.0;
-    const mockHeight = 175;
+    const source = provider === 'fitbit'
+      ? 'fitbit'
+      : 'healthkit';
+
+    const mockSteps = Math.floor(Math.random() * 4000) + 6500;
+    const mockSleep = Number(
+      (Math.random() * 2.5 + 6.5).toFixed(1)
+    );
+    const mockHeartRate = Math.floor(Math.random() * 15) + 62;
+    const mockWater = Number(
+      (Math.random() * 1.5 + 2.0).toFixed(1)
+    );
+
+    // Re-use the user's last known weight/height instead of fixed values
+    const lastBody = await HealthMetric
+      .findOne({ user: req.userId, weight: { $ne: null } })
+      .sort({ date: -1 });
 
     const metric = new HealthMetric({
       user: req.userId,
-      weight: mockWeight,
-      height: mockHeight,
+      weight: lastBody?.weight,
+      height: lastBody?.height,
       sleepHours: mockSleep,
       sleepQuality: mockSleep >= 7.5 ? 'excellent' : 'good',
       steps: mockSteps,
       heartRate: mockHeartRate,
       waterIntake: mockWater,
       source,
-      notes: `Automated sync from ${source === 'fitbit' ? 'Fitbit Wearable API' : 'Apple HealthKit'}`,
+      notes: `Automated sync from ${
+        source === 'fitbit'
+          ? 'Fitbit Wearable API'
+          : 'Apple HealthKit'
+      }`,
       date: new Date()
     });
 
     await metric.save();
 
-    res.status(201).json({
-      message: `Successfully synced data from ${source === 'fitbit' ? 'Fitbit' : 'Apple HealthKit'}!`,
+    return res.status(201).json({
+      success: true,
+      message: `Successfully synced data from ${
+        source === 'fitbit'
+          ? 'Fitbit'
+          : 'Apple HealthKit'
+      }`,
       metric
     });
+
   } catch (error) {
-    console.error('Wearable sync error:', error);
-    res.status(500).json({
-      message: 'Failed to sync wearable data',
-      error: error.message
+    console.error('Wearable Sync Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to sync wearable data'
     });
   }
 });
-// ===============================
-// CROSS-MODULE CORRELATION (Q7)
-// ===============================
+
+// CROSS-MODULE CORRELATION
 router.get('/cross-module-correlation', authMiddleware, async (req, res) => {
   try {
     const userId = new mongoose.Types.ObjectId(req.userId);
 
     const correlation = await HealthMetric.aggregate([
-      { $match: { user: userId } },
+      {
+        $match: {
+          user: userId
+        }
+      },
       {
         $group: {
-          _id: { $week: "$date" },
-          avgSleep: { $avg: "$sleepHours" },
-          avgSteps: { $avg: "$steps" }
+          _id: { $week: '$date' },
+          avgSleep: { $avg: '$sleepHours' },
+          avgSteps: { $avg: '$steps' }
         }
       },
       {
         $lookup: {
-          from: "academicgoals",
-          localField: "_id",
-          foreignField: "week",
-          as: "goals"
+          from: 'academicgoals',
+          localField: '_id',
+          foreignField: 'week',
+          as: 'goals'
         }
       }
     ]);
 
-    res.json(correlation);
-  } catch (error) {
-    console.error('Cross-module correlation error:', error);
-    res.status(500).json({
-      message: 'Failed to calculate cross-module correlation',
-      error: error.message
+    return res.status(200).json({
+      success: true,
+      correlation
     });
+
+  } catch (error) {
+    console.error('Cross-module Correlation Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to calculate cross-module correlation'
+    });
+  }
+});
+
+// UPDATE A HEALTH LOG
+router.put('/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const { data, error } = parseHealthInput(req.body);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const metric = await HealthMetric.findOneAndUpdate(
+      { _id: req.params.id, user: req.userId },
+      { $set: data },
+      { new: true, runValidators: true }
+    );
+
+    if (!metric) {
+      return res.status(404).json({ success: false, message: 'Health log not found' });
+    }
+
+    return res.json({ success: true, message: 'Health log updated', metric });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE A HEALTH LOG
+router.delete('/:id', authMiddleware, async (req, res, next) => {
+  try {
+    const metric = await HealthMetric.findOneAndDelete({
+      _id: req.params.id,
+      user: req.userId
+    });
+
+    if (!metric) {
+      return res.status(404).json({ success: false, message: 'Health log not found' });
+    }
+
+    return res.json({ success: true, message: 'Health log deleted' });
+  } catch (error) {
+    next(error);
   }
 });
 

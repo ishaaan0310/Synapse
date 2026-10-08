@@ -4,10 +4,16 @@ const router = express.Router();
 const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// ==========================================
-// GET MY NUTRITION GOALS
-// ==========================================
+const DEFAULT_GOALS = { calories: 2000, protein: 100, carbs: 250, fat: 70 };
 
+const withDefaults = (goals = {}) => ({
+  calories: goals.calories || DEFAULT_GOALS.calories,
+  protein: goals.protein || DEFAULT_GOALS.protein,
+  carbs: goals.carbs || DEFAULT_GOALS.carbs,
+  fat: goals.fat || DEFAULT_GOALS.fat
+});
+
+// GET MY NUTRITION GOALS
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.userId)
@@ -15,84 +21,84 @@ router.get('/', authMiddleware, async (req, res) => {
 
     if (!user) {
       return res.status(404).json({
+        success: false,
         message: 'User not found'
       });
     }
 
-    res.json(
-      user.nutritionGoals || {
-        calories: 2000,
-        protein: 100
-      }
-    );
+    return res.status(200).json({
+      success: true,
+      goals: withDefaults(user.nutritionGoals)
+    });
 
   } catch (error) {
-    console.error('Get goals error:', error);
+    console.error('Get Goals Error:', error);
 
-    res.status(500).json({
-      message: 'Failed to load goals'
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load nutrition goals'
     });
   }
 });
 
-// ==========================================
 // UPDATE MY NUTRITION GOALS
-// ==========================================
-
+// calories + protein are required, carbs + fat are optional
 router.put('/', authMiddleware, async (req, res) => {
   try {
-    const calories = Number(req.body.calories);
-    const protein = Number(req.body.protein);
+    const update = {};
 
-    if (
-      !Number.isFinite(calories) ||
-      calories <= 0
-    ) {
-      return res.status(400).json({
-        message: 'Calories must be greater than 0'
-      });
-    }
+    const rules = {
+      calories: { required: true, max: 10000, label: 'Calories' },
+      protein: { required: true, max: 1000, label: 'Protein' },
+      carbs: { required: false, max: 2000, label: 'Carbs' },
+      fat: { required: false, max: 1000, label: 'Fat' }
+    };
 
-    if (
-      !Number.isFinite(protein) ||
-      protein <= 0
-    ) {
-      return res.status(400).json({
-        message: 'Protein must be greater than 0'
-      });
+    for (const [field, rule] of Object.entries(rules)) {
+      const raw = req.body[field];
+
+      if ((raw === undefined || raw === '') && !rule.required) continue;
+
+      const value = Number(raw);
+
+      if (!Number.isFinite(value) || value <= 0 || value > rule.max) {
+        return res.status(400).json({
+          success: false,
+          message: `${rule.label} must be greater than 0 and at most ${rule.max}`
+        });
+      }
+
+      update[`nutritionGoals.${field}`] = value;
     }
 
     const user = await User.findByIdAndUpdate(
       req.userId,
+      { $set: update },
       {
-        $set: {
-          'nutritionGoals.calories': calories,
-          'nutritionGoals.protein': protein,
-          updatedAt: new Date()
-        }
-      },
-      {
-        new: true
+        new: true,
+        runValidators: true
       }
     ).select('nutritionGoals');
 
     if (!user) {
       return res.status(404).json({
+        success: false,
         message: 'User not found'
       });
     }
 
-    res.json({
-      message: 'Nutrition goals updated!',
-      goals: user.nutritionGoals
+    return res.status(200).json({
+      success: true,
+      message: 'Nutrition goals updated successfully',
+      goals: withDefaults(user.nutritionGoals)
     });
 
   } catch (error) {
-    console.error('Update goals error:', error);
+    console.error('Update Goals Error:', error);
 
-    res.status(500).json({
-      message: 'Failed to update goals',
-      error: error.message
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update nutrition goals'
     });
   }
 });

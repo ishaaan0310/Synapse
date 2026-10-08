@@ -1,52 +1,139 @@
-import React, { useEffect, useState, useRef } from 'react';
-import api from '../utils/api';
+import React, { useEffect, useRef, useState } from 'react';
+import api, { getErrorMessage } from '../utils/api';
+import { useToast } from '../components/Toast';
+import { Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
+
+const BASIC_SUGGESTIONS = [
+  'How am I doing?',
+  'How did I sleep?',
+  'How many calories today?',
+  'What deadlines are coming up?',
+  "What's my weight trend?",
+  'Any documents expiring?'
+];
+
+// When the Gemini agent is on, it can also take actions
+const AGENT_SUGGESTIONS = [
+  'How am I doing this week?',
+  'I had 2 rotis and dal for lunch',
+  'Plan my prep for my next exam',
+  'Why might I be feeling tired?',
+  'I slept 6 hours and drank 2L water',
+  'What should I focus on today?'
+];
+
+const TOOL_ICONS = {
+  log_meal: { icon: 'nutrition', module: 'nutrition' },
+  log_health_metric: { icon: 'health', module: 'health' },
+  create_goal: { icon: 'target', module: 'academic' },
+  add_milestones: { icon: 'list', module: 'academic' },
+  set_milestone_status: { icon: 'checkCircle', module: 'academic' },
+  update_goal: { icon: 'edit', module: 'academic' },
+  set_nutrition_goals: { icon: 'target', module: 'nutrition' }
+};
+
+const STATUS_LABELS = {
+  confirmed: 'Saved',
+  cancelled: 'Cancelled',
+  failed: 'Failed',
+  expired: 'Expired',
+  executing: 'Applying…'
+};
+
+// Render **bold** and line breaks safely (no dangerouslySetInnerHTML)
+function FormattedText({ text }) {
+  return text.split('\n').map((line, lineIndex) => (
+    <React.Fragment key={lineIndex}>
+      {lineIndex > 0 && <br />}
+      {line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+        part.startsWith('**') && part.endsWith('**')
+          ? <strong key={i}>{part.slice(2, -2)}</strong>
+          : <React.Fragment key={i}>{part}</React.Fragment>
+      )}
+    </React.Fragment>
+  ));
+}
+
+// A change the AI wants to make, waiting for the user's OK
+function ActionCard({ action, busy, onConfirm, onCancel }) {
+  const pending = action.status === 'pending';
+  const tool = TOOL_ICONS[action.tool] || { icon: 'bolt', module: 'brand' };
+
+  return (
+    <div className={`action-card status-${action.status} mod-${tool.module}`}>
+      <div className="action-header">
+        <span className="action-icon"><Icon name={tool.icon} size={18} /></span>
+        <div>
+          <small className="action-kicker">{pending ? 'Needs your OK' : 'Proposed change'}</small>
+          <strong>{action.summary}</strong>
+        </div>
+      </div>
+
+      {action.details?.length > 0 && (
+        <ul className="action-details">
+          {action.details.map((detail, i) => <li key={i}>{detail}</li>)}
+        </ul>
+      )}
+
+      {pending ? (
+        <div className="action-buttons">
+          <button type="button" className="btn small" disabled={busy} onClick={() => onConfirm(action)}>
+            <Icon name="check" size={16} />{busy ? 'Saving…' : 'Confirm'}
+          </button>
+          <button type="button" className="btn btn-secondary small" disabled={busy} onClick={() => onCancel(action)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="action-status">
+          <Icon name={action.status === 'confirmed' ? 'checkCircle' : action.status === 'failed' ? 'alert' : 'x'} size={16} />
+          {STATUS_LABELS[action.status] || action.status}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const formatTime = (date) =>
+  new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
 function Chat() {
+  const toast = useToast();
 
   const [messages, setMessages] = useState([]);
-
   const [input, setInput] = useState('');
-
   const [loading, setLoading] = useState(true);
-
   const [sending, setSending] = useState(false);
-
   const [error, setError] = useState('');
+  const [agent, setAgent] = useState({ enabled: false });
+  const [busyAction, setBusyAction] = useState(null);
 
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   // ==========================================
-  // LOAD CHAT HISTORY
+  // LOAD CHAT HISTORY + AGENT STATUS
   // ==========================================
-
-  const fetchMessages = async () => {
-
-    try {
-
-      setLoading(true);
-
-      const response = await api.get('/chat');
-
-      setMessages(response.data);
-
-    } catch (err) {
-
-      console.error('Chat history error:', err);
-
-      setError(
-        err.response?.data?.message ||
-        'Unable to load conversation'
-      );
-
-    } finally {
-
-      setLoading(false);
-
-    }
-  };
 
   useEffect(() => {
-    fetchMessages();
+    const load = async () => {
+      try {
+        const [historyRes, statusRes] = await Promise.all([
+          api.get('/chat'),
+          api.get('/agent/status').catch(() => ({ data: { enabled: false } }))
+        ]);
+        setMessages(historyRes.data);
+        setAgent(statusRes.data);
+      } catch (err) {
+        console.error('Chat history error:', err);
+        setError(getErrorMessage(err, 'Unable to load conversation'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
   // ==========================================
@@ -54,275 +141,212 @@ function Chat() {
   // ==========================================
 
   useEffect(() => {
-
-    messagesEndRef.current?.scrollIntoView({
-      behavior: 'smooth'
-    });
-
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, sending]);
 
   // ==========================================
   // SEND MESSAGE
   // ==========================================
 
-  const sendMessage = async (e) => {
+  const sendMessage = async (text) => {
+    const content = (text ?? input).trim();
 
-    e.preventDefault();
+    if (!content || sending) return;
 
-    if (!input.trim() || sending) {
-      return;
-    }
+    // Show the user's message immediately
+    const tempId = `temp-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { _id: tempId, role: 'user', content, timestamp: new Date().toISOString(), pending: true }
+    ]);
+    setInput('');
+    setSending(true);
+    setError('');
 
     try {
+      const response = await api.post('/chat', { content });
 
-      setSending(true);
-
-      setError('');
-
-      const response = await api.post('/chat', {
-        content: input.trim()
-      });
-
-      setMessages(prev => [
-        ...prev,
+      setMessages((prev) => [
+        ...prev.filter((m) => m._id !== tempId),
         response.data.userMessage,
         response.data.assistantMessage
       ]);
-
-      setInput('');
-
     } catch (err) {
-
       console.error('Chat send error:', err);
-
-      setError(
-        err.response?.data?.message ||
-        'Unable to send message'
-      );
-
+      setMessages((prev) => prev.filter((m) => m._id !== tempId));
+      setInput(content);
+      setError(getErrorMessage(err, 'Unable to send message'));
     } finally {
-
       setSending(false);
-
+      inputRef.current?.focus();
     }
   };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    sendMessage();
+  };
+
+  // ==========================================
+  // CONFIRM / CANCEL AGENT ACTIONS
+  // ==========================================
+
+  const replaceAction = (updated) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.actions?.some((a) => a._id === updated._id)
+          ? { ...m, actions: m.actions.map((a) => (a._id === updated._id ? updated : a)) }
+          : m
+      )
+    );
+  };
+
+  const resolveAction = async (action, decision) => {
+    try {
+      setBusyAction(action._id);
+      const response = await api.post(`/agent/actions/${action._id}/${decision}`);
+      replaceAction(response.data.action);
+
+      if (response.data.message) {
+        setMessages((prev) => [...prev, response.data.message]);
+      }
+
+      if (decision === 'confirm') {
+        if (response.data.action.status === 'confirmed') toast.success(response.data.action.resultMessage || 'Saved');
+        else toast.error(response.data.action.resultMessage || 'Could not apply change');
+      }
+    } catch (err) {
+      if (err.response?.data?.action) replaceAction(err.response.data.action);
+      toast.error(getErrorMessage(err, 'Could not update this action'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const clearChat = async () => {
+    if (!window.confirm('Clear your entire conversation with your twin?')) return;
+
+    try {
+      await api.delete('/chat');
+      setMessages([]);
+      toast.success('Conversation cleared');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not clear chat'));
+    }
+  };
+
+  const suggestions = agent.enabled ? AGENT_SUGGESTIONS : BASIC_SUGGESTIONS;
+
   return (
+    <div className="page chat-page">
+      <div className="page-header">
+        <div>
+          <h2><span className="page-icon"><Icon name="twin" size={22} /></span>AI Twin</h2>
+          <span
+            className={`agent-badge ${agent.enabled ? 'on' : ''}`}
+            title={agent.enabled ? `Powered by ${agent.model}` : 'Add GEMINI_API_KEY to backend/.env to enable the AI agent'}
+          >
+            <span className="agent-dot" />
+            {agent.enabled ? `Agent on, ${agent.model}` : 'Basic mode'}
+          </span>
+        </div>
+        {messages.length > 0 && (
+          <button type="button" className="btn btn-secondary small" onClick={clearChat}>
+            <Icon name="eraser" size={16} /> Clear chat
+          </button>
+        )}
+      </div>
 
-    <div className="page">
-
-      <h2>🤖 AI Twin</h2>
-
-      <div
-        className="card"
-        style={{
-          maxWidth: '900px',
-          margin: '0 auto'
-        }}
-      >
-
-        {/* ====================================
-            CHAT AREA
-        ===================================== */}
-
-        <div
-          style={{
-            height: '500px',
-            overflowY: 'auto',
-            padding: '1rem',
-            marginBottom: '1rem',
-            background: '#f7f7ff',
-            borderRadius: '12px'
-          }}
-        >
-
+      <div className="card chat-card">
+        <div className="chat-window">
           {loading ? (
-
-            <p>Loading your conversation...</p>
-
+            <div className="chat-skeleton"><Skeleton lines={2} /><Skeleton lines={3} /></div>
           ) : messages.length === 0 ? (
-
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '5rem 1rem'
-              }}
-            >
-
-              <div
-                style={{
-                  fontSize: '4rem'
-                }}
-              >
-                🧠
-              </div>
-
-              <h3>
-                Your Digital Twin is ready
-              </h3>
-
-              <p>
-                Ask me about your health,
-                nutrition or academic progress.
+            <div className="empty-state">
+              <span className="empty-orb"><Icon name="twin" size={30} /></span>
+              <h3>Ask your twin anything</h3>
+              <p className="muted">
+                {agent.enabled
+                  ? 'Ask me anything about your health, food, studies or documents. I can also log meals, create study plans and update goals for you. You confirm every change.'
+                  : 'I learn from your health, nutrition, academic and document data. Try one of the suggestions below.'}
               </p>
-
             </div>
-
           ) : (
-
             messages.map((message) => (
-
-              <div
-                key={message._id}
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    message.role === 'user'
-                      ? 'flex-end'
-                      : 'flex-start',
-                  marginBottom: '1rem'
-                }}
-              >
-
-                <div
-                  style={{
-                    maxWidth: '75%',
-                    padding: '0.9rem 1.1rem',
-                    borderRadius: '16px',
-                    background:
-                      message.role === 'user'
-                        ? '#667eea'
-                        : '#ffffff',
-                    color:
-                      message.role === 'user'
-                        ? 'white'
-                        : '#222',
-                    boxShadow:
-                      '0 2px 8px rgba(0,0,0,0.08)'
-                  }}
-                >
-
-                  <div
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: 'bold',
-                      marginBottom: '0.3rem',
-                      opacity: 0.7
-                    }}
-                  >
-                    {message.role === 'user'
-                      ? 'You'
-                      : '🧠 Synapse'}
+              <div key={message._id} className={`message-row ${message.role}`}>
+                {message.role === 'assistant' && <div className="bot-avatar"><Icon name="twin" size={16} strokeWidth={2} /></div>}
+                <div className={`bubble ${message.role} ${message.pending ? 'pending' : ''}`}>
+                  <div className="bubble-text">
+                    <FormattedText text={message.content} />
                   </div>
 
-                  <div>
-                    {message.content}
-                  </div>
+                  {message.actions?.length > 0 && (
+                    <div className="action-list">
+                      {message.actions.map((action) => (
+                        <ActionCard
+                          key={action._id}
+                          action={action}
+                          busy={busyAction === action._id}
+                          onConfirm={(a) => resolveAction(a, 'confirm')}
+                          onCancel={(a) => resolveAction(a, 'cancel')}
+                        />
+                      ))}
+                    </div>
+                  )}
 
+                  <div className="bubble-time">
+                    {message.source === 'agent' && message.role === 'assistant' && <span className="agent-mark" title="Answered by the AI agent"><Icon name="sparkle" size={12} /></span>}
+                    {formatTime(message.timestamp)}
+                  </div>
                 </div>
-
               </div>
-
             ))
+          )}
 
+          {sending && (
+            <div className="message-row assistant">
+              <div className="bot-avatar"><Icon name="twin" size={16} strokeWidth={2} /></div>
+              <div className="bubble assistant typing" aria-label="Twin is thinking">
+                <span /><i /><span /><i /><span />
+              </div>
+            </div>
           )}
 
           <div ref={messagesEndRef} />
-
         </div>
 
-        {/* ====================================
-            ERROR
-        ===================================== */}
+        {error && <div className="error-message">{error}</div>}
 
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
-        )}
-
-        {/* ====================================
-            INPUT
-        ===================================== */}
-
-        <form
-          onSubmit={sendMessage}
-          style={{
-            display: 'flex',
-            gap: '0.75rem'
-          }}
-        >
-
-          <input
-            type="text"
-            placeholder="Ask your Digital Twin..."
-            value={input}
-            onChange={(e) =>
-              setInput(e.target.value)
-            }
-            disabled={sending}
-            style={{
-              marginBottom: 0
-            }}
-          />
-
-          <button
-            type="submit"
-            className="btn"
-            disabled={
-              sending ||
-              !input.trim()
-            }
-          >
-            {sending
-              ? '...'
-              : 'Send'}
-          </button>
-
-        </form>
-
-        {/* ====================================
-            SUGGESTIONS
-        ===================================== */}
-
-        <div
-          style={{
-            marginTop: '1rem',
-            display: 'flex',
-            gap: '0.5rem',
-            flexWrap: 'wrap'
-          }}
-        >
-
-          {[
-            'How is my health?',
-            'How many calories did I eat today?',
-            'What should I study next?'
-          ].map((suggestion) => (
-
+        <div className="chips">
+          {suggestions.map((suggestion) => (
             <button
               key={suggestion}
               type="button"
-              onClick={() =>
-                setInput(suggestion)
-              }
-              style={{
-                padding: '0.5rem 0.8rem',
-                borderRadius: '20px',
-                border: '1px solid #ddd',
-                background: '#fff',
-                cursor: 'pointer'
-              }}
+              className="chip"
+              disabled={sending}
+              onClick={() => sendMessage(suggestion)}
             >
               {suggestion}
             </button>
-
           ))}
-
         </div>
 
-      </div>
+        <form onSubmit={handleSubmit} className="chat-input">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder={agent.enabled ? 'Ask or tell your twin anything…' : 'Ask your Digital Twin...'}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            maxLength="1000"
+            autoFocus
+          />
 
+          <button type="submit" className="btn" disabled={sending || !input.trim()}>
+            <Icon name="send" size={18} /><span className="send-label">{sending ? 'Sending' : 'Send'}</span>
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

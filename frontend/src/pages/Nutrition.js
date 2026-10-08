@@ -1,848 +1,502 @@
-import React, { useEffect, useState } from 'react';
-import api from '../utils/api';
+import React, { useCallback, useEffect, useState } from 'react';
+import api, { getErrorMessage, toDateInput } from '../utils/api';
+import { useToast } from '../components/Toast';
+import { BarChart, ProgressBar, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
+
+const EMPTY_MEAL = {
+  mealType: 'breakfast',
+  foodName: '',
+  calories: '',
+  protein: '',
+  carbs: '',
+  fat: '',
+  imageUrl: ''
+};
+
+const DEFAULT_GOALS = { calories: 2000, protein: 100, carbs: 250, fat: 70 };
+
+const MEAL_TYPES = [
+  { value: 'breakfast', label: 'Breakfast', icon: 'sun' },
+  { value: 'lunch', label: 'Lunch', icon: 'nutrition' },
+  { value: 'dinner', label: 'Dinner', icon: 'moon' },
+  { value: 'snack', label: 'Snack', icon: 'bolt' }
+];
+
+const MACROS = [
+  { key: 'calories', label: 'Calories', icon: 'flame', unit: 'kcal', color: 'var(--nutrition)' },
+  { key: 'protein', label: 'Protein', icon: 'protein', unit: 'g', color: 'var(--brand)' },
+  { key: 'carbs', label: 'Carbs', icon: 'grain', unit: 'g', color: 'var(--documents)' },
+  { key: 'fat', label: 'Fat', icon: 'drop', unit: 'g', color: 'var(--academic)' }
+];
+
+// Pick a sensible default meal type from the time of day
+const mealTypeForNow = () => {
+  const hour = new Date().getHours();
+  if (hour < 11) return 'breakfast';
+  if (hour < 16) return 'lunch';
+  if (hour < 21) return 'dinner';
+  return 'snack';
+};
+
+const shiftDate = (dateString, days) => {
+  const d = new Date(`${dateString}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return toDateInput(d);
+};
 
 function Nutrition() {
+  const toast = useToast();
+  const today = toDateInput();
 
-  const [form, setForm] = useState({
-    mealType: 'breakfast',
-    foodName: '',
-    calories: '',
-    protein: '',
-    carbs: '',
-    fat: '',
-    imageUrl: ''
-  });
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [form, setForm] = useState({ ...EMPTY_MEAL, mealType: mealTypeForNow() });
 
   const [meals, setMeals] = useState([]);
+  const [totals, setTotals] = useState({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const [goals, setGoals] = useState(DEFAULT_GOALS);
+  const [goalForm, setGoalForm] = useState(DEFAULT_GOALS);
+  const [weekly, setWeekly] = useState(null);
+  const [editingGoals, setEditingGoals] = useState(false);
 
-  const [totals, setTotals] = useState({
-    calories: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0
-  });
-
-  const [goals, setGoals] = useState({
-    calories: 2000,
-    protein: 100
-  });
-
-  const [goalForm, setGoalForm] = useState({
-    calories: 2000,
-    protein: 100
-  });
-
-  const [historyTrends, setHistoryTrends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingGoals, setSavingGoals] = useState(false);
-
   const [error, setError] = useState('');
 
+  const isToday = selectedDate === today;
+
   // =====================================
-  // FETCH NUTRITION DATA & TRENDS
+  // FETCH
   // =====================================
 
-  const fetchMeals = async () => {
+  const fetchDay = useCallback(async (date) => {
     try {
-
       setLoading(true);
       setError('');
 
-      const [dailyRes, trendsRes] = await Promise.all([
-        api.get('/nutrition/daily'),
-        api.get('/nutrition/history-trends')
-      ]);
+      const response = await api.get('/nutrition/daily', { params: { date } });
 
-      setMeals(dailyRes.data.meals || []);
-      setHistoryTrends(trendsRes.data || []);
+      setMeals(response.data.meals || []);
+      setTotals(response.data.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
-      setTotals(
-        dailyRes.data.totals || {
-          calories: 0,
-          protein: 0,
-          carbs: 0,
-          fat: 0
-        }
-      );
-
-      const currentGoals =
-        dailyRes.data.goals || {
-          calories: 2000,
-          protein: 100
-        };
-
+      const currentGoals = { ...DEFAULT_GOALS, ...(response.data.goals || {}) };
       setGoals(currentGoals);
       setGoalForm(currentGoals);
-
     } catch (err) {
-
-      console.error(
-        'Nutrition fetch error:',
-        err
-      );
-
-      setError(
-        err.response?.data?.message ||
-        'Unable to load nutrition data'
-      );
-
+      console.error('Nutrition fetch error:', err);
+      setError(getErrorMessage(err, 'Unable to load nutrition data'));
     } finally {
-
       setLoading(false);
-
     }
-  };
-
-  useEffect(() => {
-    fetchMeals();
   }, []);
 
-  // =====================================
-  // MEAL FORM
-  // =====================================
+  const fetchWeekly = useCallback(async () => {
+    try {
+      const response = await api.get('/nutrition/weekly');
+      setWeekly(response.data);
+    } catch (err) {
+      console.error('Weekly nutrition error:', err);
+    }
+  }, []);
 
-  const handleChange = (e) => {
+  useEffect(() => {
+    fetchDay(selectedDate);
+  }, [fetchDay, selectedDate]);
 
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value
-    });
-
-  };
+  useEffect(() => {
+    fetchWeekly();
+  }, [fetchWeekly]);
 
   // =====================================
   // ADD MEAL
   // =====================================
 
-  const handleSubmit = async (e) => {
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
+  const logMeal = async (meal) => {
+    await api.post('/nutrition', {
+      mealType: meal.mealType,
+      foodName: meal.foodName,
+      calories: Number(meal.calories) || 0,
+      protein: Number(meal.protein) || 0,
+      carbs: Number(meal.carbs) || 0,
+      fat: Number(meal.fat) || 0,
+      imageUrl: (meal.imageUrl || '').trim()
+    });
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-
       setSaving(true);
       setError('');
 
-      await api.post('/nutrition', {
-        mealType: form.mealType,
-        foodName: form.foodName,
-        calories: Number(form.calories),
-        protein: Number(form.protein),
-        carbs: Number(form.carbs),
-        fat: Number(form.fat),
-        imageUrl: form.imageUrl
-      });
+      await logMeal(form);
 
-      setForm({
-        mealType: 'breakfast',
-        foodName: '',
-        calories: '',
-        protein: '',
-        carbs: '',
-        fat: '',
-        imageUrl: ''
-      });
+      setForm({ ...EMPTY_MEAL, mealType: form.mealType });
+      toast.success(`${form.foodName} logged`);
 
-      await fetchMeals();
-
+      await Promise.all([fetchDay(today), fetchWeekly()]);
     } catch (err) {
-
-      console.error(
-        'Nutrition save error:',
-        err
-      );
-
-      setError(
-        err.response?.data?.message ||
-        'Failed to save meal'
-      );
-
+      console.error('Nutrition save error:', err);
+      setError(getErrorMessage(err, 'Failed to save meal'));
     } finally {
-
       setSaving(false);
+    }
+  };
 
+  // Re-log a previous meal today with one click
+  const logAgain = async (meal) => {
+    try {
+      await logMeal({ ...meal, mealType: mealTypeForNow() });
+      toast.success(`${meal.foodName} logged for today`);
+      setSelectedDate(today);
+      if (isToday) await fetchDay(today);
+      fetchWeekly();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to log meal'));
+    }
+  };
+
+  const deleteMeal = async (meal) => {
+    if (!window.confirm(`Delete "${meal.foodName}"?`)) return;
+
+    try {
+      await api.delete(`/nutrition/${meal._id}`);
+      toast.success('Meal deleted');
+      await Promise.all([fetchDay(selectedDate), fetchWeekly()]);
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to delete meal'));
     }
   };
 
   // =====================================
-  // GOAL FORM CHANGE
+  // GOALS
   // =====================================
 
   const handleGoalChange = (e) => {
-
-    setGoalForm({
-      ...goalForm,
-      [e.target.name]: e.target.value
-    });
-
+    setGoalForm({ ...goalForm, [e.target.name]: e.target.value });
   };
 
-  // =====================================
-  // SAVE GOALS
-  // =====================================
-
   const saveGoals = async (e) => {
-
     e.preventDefault();
 
     try {
-
       setSavingGoals(true);
       setError('');
 
-      const response =
-        await api.put('/goals', {
-
-          calories:
-            Number(goalForm.calories),
-
-          protein:
-            Number(goalForm.protein)
-
-        });
+      const response = await api.put('/goals', {
+        calories: Number(goalForm.calories),
+        protein: Number(goalForm.protein),
+        carbs: Number(goalForm.carbs),
+        fat: Number(goalForm.fat)
+      });
 
       setGoals(response.data.goals);
-
       setGoalForm(response.data.goals);
-
+      setEditingGoals(false);
+      toast.success('Nutrition goals saved');
+      fetchWeekly();
     } catch (err) {
-
-      console.error(
-        'Goal save error:',
-        err
-      );
-
-      setError(
-        err.response?.data?.message ||
-        'Failed to save nutrition goals'
-      );
-
+      console.error('Goal save error:', err);
+      setError(getErrorMessage(err, 'Failed to save nutrition goals'));
     } finally {
-
       setSavingGoals(false);
-
     }
   };
 
   // =====================================
-  // PROGRESS CALCULATION
+  // HELPERS
   // =====================================
 
-  const calorieProgress =
-    goals.calories > 0
-      ? Math.min(
-          (totals.calories /
-            goals.calories) *
-            100,
-          100
-        )
-      : 0;
+  const formatTime = (date) =>
+    new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-  const proteinProgress =
-    goals.protein > 0
-      ? Math.min(
-          (totals.protein /
-            goals.protein) *
-            100,
-          100
-        )
-      : 0;
+  const dateLabel = isToday
+    ? 'Today'
+    : selectedDate === shiftDate(today, -1)
+      ? 'Yesterday'
+      : new Date(`${selectedDate}T12:00:00`).toLocaleDateString('en-IN', {
+          weekday: 'short', day: 'numeric', month: 'short'
+        });
 
-  // =====================================
-  // STATUS
-  // =====================================
+  const mealsByType = MEAL_TYPES
+    .map((type) => ({ ...type, items: meals.filter((m) => m.mealType === type.value) }))
+    .filter((group) => group.items.length > 0);
 
-  const getStatus = (current, goal) => {
+  const remaining = Math.round(goals.calories - totals.calories);
 
-    if (current >= goal) {
-      return {
-        text: 'Goal achieved 🎯',
-        className: 'goal-achieved'
-      };
-    }
-
-    return {
-      text: `${Math.round(
-        (current / goal) * 100
-      )}% achieved`,
-      className: 'goal-progress'
-    };
+  // Share of today's calories from each macro (protein & carbs 4 kcal/g, fat 9 kcal/g)
+  const macroCalories = {
+    protein: (totals.protein || 0) * 4,
+    carbs: (totals.carbs || 0) * 4,
+    fat: (totals.fat || 0) * 9
   };
-
-  const calorieStatus =
-    getStatus(
-      totals.calories,
-      goals.calories
-    );
-
-  const proteinStatus =
-    getStatus(
-      totals.protein,
-      goals.protein
-    );
-
-  // =====================================
-  // TIME
-  // =====================================
-
-  const formatTime = (date) => {
-
-    return new Date(date).toLocaleTimeString(
-      'en-IN',
-      {
-        hour: '2-digit',
-        minute: '2-digit'
+  const macroTotal = macroCalories.protein + macroCalories.carbs + macroCalories.fat;
+  const macroSplit = macroTotal > 0
+    ? {
+        protein: Math.round((macroCalories.protein / macroTotal) * 100),
+        carbs: Math.round((macroCalories.carbs / macroTotal) * 100),
+        fat: Math.round((macroCalories.fat / macroTotal) * 100)
       }
-    );
-
-  };
+    : null;
 
   return (
+    <div className="page mod-nutrition">
+      <div className="page-header">
+        <h2><span className="page-icon"><Icon name="nutrition" size={22} /></span>Nutrition</h2>
 
-    <div className="page">
-
-      <h2>🍎 Nutrition</h2>
-
-      {error && (
-        <div className="error-message">
-          {error}
+        <div className="date-nav">
+          <button type="button" className="icon-btn" onClick={() => setSelectedDate(shiftDate(selectedDate, -1))}
+            aria-label="Previous day"><Icon name="chevronLeft" size={18} /></button>
+          <input
+            type="date"
+            value={selectedDate}
+            max={today}
+            onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+          />
+          <button type="button" className="icon-btn" disabled={isToday}
+            onClick={() => setSelectedDate(shiftDate(selectedDate, 1))} aria-label="Next day"><Icon name="chevronRight" size={18} /></button>
+          {!isToday && (
+            <button type="button" className="btn btn-secondary small" onClick={() => setSelectedDate(today)}>
+              Today
+            </button>
+          )}
         </div>
-      )}
-
-      {/* =================================
-          DAILY GOALS
-      ================================= */}
-
-      <div className="card">
-
-        <h3>🎯 Daily Nutrition Goals</h3>
-
-        <p>
-          Set how much you want to consume
-          each day.
-        </p>
-
-        <form onSubmit={saveGoals}>
-
-          <input
-            type="number"
-            name="calories"
-            placeholder="Daily Calories"
-            value={goalForm.calories}
-            onChange={handleGoalChange}
-            min="1"
-            required
-          />
-
-          <input
-            type="number"
-            name="protein"
-            placeholder="Daily Protein (g)"
-            value={goalForm.protein}
-            onChange={handleGoalChange}
-            min="1"
-            required
-          />
-
-          <button
-            type="submit"
-            className="btn"
-            disabled={savingGoals}
-          >
-            {savingGoals
-              ? 'Saving...'
-              : 'Save Goals'}
-          </button>
-
-        </form>
-
       </div>
+
+      {error && <div className="error-message">{error}</div>}
 
       {/* =================================
           PROGRESS
       ================================= */}
-
       <div className="card">
-
-        <h3>📊 Today's Progress</h3>
-
-        {/* CALORIES REMAINING CALLOUT */}
-        {(() => {
-          const remaining = goals.calories - totals.calories;
-          const isOver = remaining < 0;
-          return (
-            <div style={{
-              padding: '1rem 1.25rem',
-              borderRadius: '10px',
-              background: isOver ? '#fff5f5' : '#f0fff4',
-              border: `1px solid ${isOver ? '#feb2b2' : '#9ae6b4'}`,
-              marginBottom: '1.5rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div>
-                <strong style={{ color: isOver ? '#c53030' : '#276749', fontSize: '1rem' }}>
-                  {isOver ? '⚠️ Calorie Goal Exceeded' : '⚡ Calories Remaining Today'}
-                </strong>
-                <p style={{ margin: '0.2rem 0 0 0', color: '#4a5568', fontSize: '0.85rem' }}>
-                  {isOver ? `You are ${Math.abs(remaining)} kcal over your daily target` : `You can consume ${remaining} more kcal today`}
-                </p>
-              </div>
-              <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: isOver ? '#e53e3e' : '#38a169' }}>
-                {isOver ? `+${Math.abs(remaining)}` : remaining} <small style={{ fontSize: '0.9rem' }}>kcal</small>
-              </span>
-            </div>
-          );
-        })()}
-
-        {/* CALORIES PROGRESS */}
-        <div style={{ marginBottom: '1.5rem' }}>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent:
-                'space-between',
-              marginBottom: '0.5rem'
-            }}
-          >
-
-            <strong>
-              🔥 Calories Progress
-            </strong>
-
-            <span>
-              {totals.calories} /
-              {goals.calories} kcal
-            </span>
-
-          </div>
-
-          <div
-            style={{
-              height: '14px',
-              background: '#e5e5e5',
-              borderRadius: '20px',
-              overflow: 'hidden'
-            }}
-          >
-
-            <div
-              style={{
-                width: `${calorieProgress}%`,
-                height: '100%',
-                background: totals.calories > goals.calories ? '#e53e3e' : '#667eea',
-                borderRadius: '20px',
-                transition:
-                  'width 0.5s ease'
-              }}
-            />
-
-          </div>
-
-          <p
-            style={{
-              marginTop: '0.5rem',
-              fontSize: '0.9rem'
-            }}
-          >
-            {calorieStatus.text}
-          </p>
-
-        </div>
-
-        {/* PROTEIN PROGRESS */}
-        <div style={{ marginBottom: '1.5rem' }}>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent:
-                'space-between',
-              marginBottom: '0.5rem'
-            }}
-          >
-
-            <strong>
-              💪 Protein Progress
-            </strong>
-
-            <span>
-              {totals.protein} /
-              {goals.protein} g
-            </span>
-
-          </div>
-
-          <div
-            style={{
-              height: '14px',
-              background: '#e5e5e5',
-              borderRadius: '20px',
-              overflow: 'hidden'
-            }}
-          >
-
-            <div
-              style={{
-                width: `${proteinProgress}%`,
-                height: '100%',
-                background: '#48bb78',
-                borderRadius: '20px',
-                transition:
-                  'width 0.5s ease'
-              }}
-            />
-
-          </div>
-
-          <p
-            style={{
-              marginTop: '0.5rem',
-              fontSize: '0.9rem'
-            }}
-          >
-            {proteinStatus.text}
-          </p>
-
-        </div>
-
-        {/* MACRO BALANCE BREAKDOWN */}
-        {(() => {
-          const pCal = totals.protein * 4;
-          const cCal = totals.carbs * 4;
-          const fCal = totals.fat * 9;
-          const totalCal = pCal + cCal + fCal || 1;
-
-          const pPct = Math.round((pCal / totalCal) * 100);
-          const cPct = Math.round((cCal / totalCal) * 100);
-          const fPct = Math.round((fCal / totalCal) * 100);
-
-          return (
-            <div style={{ paddingTop: '1rem', borderTop: '1px solid #eee' }}>
-              <h4 style={{ margin: '0 0 0.75rem 0', color: '#2d3748' }}>🥗 Macro Calorie Split Ratio</h4>
-              <div style={{ height: '20px', display: 'flex', borderRadius: '10px', overflow: 'hidden', background: '#edf2f7' }}>
-                <div style={{ width: `${pPct}%`, background: '#48bb78', title: `Protein ${pPct}%` }} />
-                <div style={{ width: `${cPct}%`, background: '#4299e1', title: `Carbs ${cPct}%` }} />
-                <div style={{ width: `${fPct}%`, background: '#ed8936', title: `Fat ${fPct}%` }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', fontSize: '0.85rem' }}>
-                <span style={{ color: '#276749', fontWeight: 'bold' }}>💪 Protein: {pPct}%</span>
-                <span style={{ color: '#2b6cb0', fontWeight: 'bold' }}>🍞 Carbs: {cPct}%</span>
-                <span style={{ color: '#c05621', fontWeight: 'bold' }}>🥑 Fat: {fPct}%</span>
-              </div>
-            </div>
-          );
-        })()}
-
-      </div>
-
-      {/* =================================
-          ADD MEAL
-      ================================= */}
-
-      <div className="card">
-
-        <h3>🍽️ Log Meal</h3>
-
-        <form onSubmit={handleSubmit}>
-
-          <select
-            name="mealType"
-            value={form.mealType}
-            onChange={handleChange}
-          >
-
-            <option value="breakfast">
-              Breakfast
-            </option>
-
-            <option value="lunch">
-              Lunch
-            </option>
-
-            <option value="dinner">
-              Dinner
-            </option>
-
-            <option value="snack">
-              Snack
-            </option>
-
-          </select>
-
-          <input
-            type="text"
-            name="foodName"
-            placeholder="Food name"
-            value={form.foodName}
-            onChange={handleChange}
-            required
-          />
-
-          <input
-            type="number"
-            name="calories"
-            placeholder="Calories"
-            value={form.calories}
-            onChange={handleChange}
-            required
-          />
-
-          <input
-            type="number"
-            name="protein"
-            placeholder="Protein (g)"
-            value={form.protein}
-            onChange={handleChange}
-          />
-
-          <input
-            type="number"
-            name="carbs"
-            placeholder="Carbs (g)"
-            value={form.carbs}
-            onChange={handleChange}
-          />
-
-          <input
-            type="url"
-            name="imageUrl"
-            placeholder="Image URL (optional, e.g. https://...)"
-            value={form.imageUrl}
-            onChange={handleChange}
-          />
-
-          {form.imageUrl && (
-            <div style={{ marginBottom: '1rem', textAlign: 'center' }}>
-              <img
-                src={form.imageUrl}
-                alt="Meal Preview"
-                style={{ maxHeight: '100px', borderRadius: '8px', border: '1px solid #ccc' }}
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="btn"
-            disabled={saving}
-          >
-
-            {saving
-              ? 'Saving...'
-              : 'Add Meal'}
-
+        <div className="card-header">
+          <h3>{dateLabel === 'Today' ? "Today's progress" : `Progress for ${dateLabel}`}</h3>
+          <button type="button" className="link-btn" onClick={() => setEditingGoals((v) => !v)}>
+            {editingGoals ? 'Cancel' : <><Icon name="target" size={16} /> Edit goals</>}
           </button>
-
-        </form>
-
-      </div>
-
-      {/* =================================
-          TODAY'S TOTALS
-      ================================= */}
-
-      <div className="card">
-
-        <h3>Today's Nutrition</h3>
-
-        <div className="stats-grid">
-
-          <div className="stat-card">
-            <h3>Calories</h3>
-
-            <p className="stat-number">
-              {totals.calories}
-            </p>
-
-            <span>
-              / {goals.calories} kcal
-            </span>
-          </div>
-
-          <div className="stat-card">
-            <h3>Protein</h3>
-
-            <p className="stat-number">
-              {totals.protein}g
-            </p>
-
-            <span>
-              / {goals.protein}g
-            </span>
-          </div>
-
-          <div className="stat-card">
-            <h3>Carbs</h3>
-
-            <p className="stat-number">
-              {totals.carbs}g
-            </p>
-          </div>
-
-          <div className="stat-card">
-            <h3>Fat</h3>
-
-            <p className="stat-number">
-              {totals.fat}g
-            </p>
-          </div>
-
         </div>
 
+        {editingGoals && (
+          <form onSubmit={saveGoals} className="goal-form">
+            <div className="form-grid four">
+              <label>Calories (kcal)
+                <input type="number" name="calories" min="1" value={goalForm.calories} onChange={handleGoalChange} required />
+              </label>
+              <label>Protein (g)
+                <input type="number" name="protein" min="1" value={goalForm.protein} onChange={handleGoalChange} required />
+              </label>
+              <label>Carbs (g)
+                <input type="number" name="carbs" min="1" value={goalForm.carbs} onChange={handleGoalChange} required />
+              </label>
+              <label>Fat (g)
+                <input type="number" name="fat" min="1" value={goalForm.fat} onChange={handleGoalChange} required />
+              </label>
+            </div>
+            <button type="submit" className="btn" disabled={savingGoals}>
+              {savingGoals ? 'Saving…' : 'Save goals'}
+            </button>
+          </form>
+        )}
+
+        <div className="macro-list">
+          {MACROS.map((macro) => {
+            const current = Math.round(totals[macro.key] || 0);
+            const goal = goals[macro.key] || 0;
+            const pct = goal ? Math.round((current / goal) * 100) : 0;
+            return (
+              <div key={macro.key} className="macro">
+                <div className="macro-header">
+                  <strong><Icon name={macro.icon} size={16} /> {macro.label}</strong>
+                  <span className="num"><strong>{current}</strong> / {goal} {macro.unit}</span>
+                </div>
+                <ProgressBar value={current} max={goal} color={pct > 110 ? 'var(--danger)' : macro.color} />
+                <small className="muted">
+                  {pct >= 100 ? (pct > 110 ? `${pct}%, over goal` : 'Goal reached') : `${pct}% achieved`}
+                </small>
+              </div>
+            );
+          })}
+        </div>
+
+        {isToday && (
+          <div className={`remaining-callout ${remaining < 0 ? 'over' : ''}`}>
+            <div>
+              <strong>{remaining < 0 ? 'Over your calorie goal' : 'Calories remaining today'}</strong>
+              <p className="muted small">
+                {remaining < 0
+                  ? `You're ${Math.abs(remaining)} kcal over your ${goals.calories} kcal target.`
+                  : `You can have about ${remaining} more kcal today.`}
+              </p>
+            </div>
+            <span className="remaining-value num">
+              {remaining < 0 ? `+${Math.abs(remaining)}` : remaining}<small> kcal</small>
+            </span>
+          </div>
+        )}
+
+        {macroSplit && (
+          <div className="macro-split">
+            <h4>Where today's calories come from</h4>
+            <div className="split-bar" role="img"
+              aria-label={`Protein ${macroSplit.protein}%, carbs ${macroSplit.carbs}%, fat ${macroSplit.fat}%`}>
+              <span style={{ width: `${macroSplit.protein}%`, background: 'var(--brand)' }} />
+              <span style={{ width: `${macroSplit.carbs}%`, background: 'var(--documents)' }} />
+              <span style={{ width: `${macroSplit.fat}%`, background: 'var(--academic)' }} />
+            </div>
+            <div className="split-legend">
+              <span><i style={{ background: 'var(--brand)' }} />Protein {macroSplit.protein}%</span>
+              <span><i style={{ background: 'var(--documents)' }} />Carbs {macroSplit.carbs}%</span>
+              <span><i style={{ background: 'var(--academic)' }} />Fat {macroSplit.fat}%</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* =================================
-          7-DAY NUTRITION TRENDS
+          WEEKLY CHART
       ================================= */}
-      {historyTrends.length > 0 && (
-        <div className="card">
-          <h3>📈 7-Day Nutrition Intake Trends</h3>
-          <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1rem' }}>
-            Daily totals aggregated across your logged meals using MongoDB pipelines.
-          </p>
+      <div className="card section">
+        <div className="card-header">
+          <h3>Last 7 days</h3>
+          {weekly?.averageCalories > 0 && (
+            <span className="muted">Avg {weekly.averageCalories.toLocaleString()} kcal/day</span>
+          )}
+        </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-            {historyTrends.map((day) => (
-              <div
-                key={day._id}
-                style={{
-                  padding: '0.85rem',
-                  borderRadius: '10px',
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0'
-                }}
-              >
-                <strong style={{ display: 'block', fontSize: '0.85rem', color: '#4a5568', marginBottom: '0.4rem' }}>
-                  📅 {day._id}
-                </strong>
-                <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: day.totalCalories > goals.calories ? '#e53e3e' : '#2b6cb0' }}>
-                  {day.totalCalories} <small style={{ fontSize: '0.75rem' }}>kcal</small>
+        {weekly ? (
+          <BarChart
+            data={weekly.days.map((d) => ({
+              label: new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short' }),
+              value: d.calories
+            }))}
+            unit="kcal"
+            target={weekly.goals.calories}
+            targetLabel={`Goal ${weekly.goals.calories}`}
+          />
+        ) : (
+          <Skeleton height={240} />
+        )}
+      </div>
+
+      {/* =================================
+          ADD MEAL (today only)
+      ================================= */}
+      {isToday && (
+        <div className="card section">
+          <h3>Log a meal</h3>
+
+          <form onSubmit={handleSubmit}>
+            <div className="segmented">
+              {MEAL_TYPES.map((type) => (
+                <button
+                  key={type.value}
+                  type="button"
+                  className={form.mealType === type.value ? 'active' : ''}
+                  onClick={() => setForm({ ...form, mealType: type.value })}
+                >
+                  <Icon name={type.icon} size={16} /> {type.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="form-grid">
+              <label className="full">Food name
+                <input type="text" name="foodName" placeholder="e.g. Paneer wrap" value={form.foodName}
+                  onChange={handleChange} maxLength="100" required />
+              </label>
+              <label>Calories (kcal)
+                <input type="number" name="calories" min="0" value={form.calories} onChange={handleChange} required />
+              </label>
+              <label>Protein (g)
+                <input type="number" name="protein" min="0" step="0.1" value={form.protein} onChange={handleChange} />
+              </label>
+              <label>Carbs (g)
+                <input type="number" name="carbs" min="0" step="0.1" value={form.carbs} onChange={handleChange} />
+              </label>
+              <label>Fat (g)
+                <input type="number" name="fat" min="0" step="0.1" value={form.fat} onChange={handleChange} />
+              </label>
+              <label className="full">Photo URL <span className="muted">(optional)</span>
+                <input type="url" name="imageUrl" placeholder="https://…" value={form.imageUrl}
+                  onChange={handleChange} maxLength="1000" />
+              </label>
+              {/^https?:\/\//i.test(form.imageUrl) && (
+                <div className="full image-preview">
+                  <img src={form.imageUrl} alt="Meal preview" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                 </div>
-                <div style={{ fontSize: '0.8rem', color: '#718096', marginTop: '0.3rem' }}>
-                  💪 {day.totalProtein}g protein | {day.mealCount} meal(s)
-                </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+
+            <button type="submit" className="btn" disabled={saving}>
+              {saving ? 'Saving…' : 'Add meal'}
+            </button>
+          </form>
         </div>
       )}
 
       {/* =================================
           MEALS
       ================================= */}
-
-      <div className="card">
-
-        <h3>Today's Meals</h3>
+      <div className="card section">
+        <h3>{dateLabel === 'Today' ? "Today's meals" : `Meals on ${dateLabel}`}</h3>
 
         {loading ? (
-
-          <p>Loading meals...</p>
-
+          <Skeleton lines={3} />
         ) : meals.length === 0 ? (
-
-          <p>
-            No meals logged today.
-          </p>
-
+          <div className="empty-state small">
+            <Icon name="nutrition" size={32} className="empty-icon" />
+            <p>No meals logged {isToday ? 'today' : 'on this day'}.</p>
+          </div>
         ) : (
+          mealsByType.map((group) => (
+            <div key={group.value} className="meal-group">
+              <h4>
+                <Icon name={group.icon} size={17} /> {group.label}
+                <span className="muted"> · {Math.round(group.items.reduce((s, m) => s + (m.calories || 0), 0))} kcal</span>
+              </h4>
 
-          meals.map((meal) => (
+              {group.items.map((meal) => (
+                <div key={meal._id} className="entry">
+                  <div className="entry-header">
+                    <div className="meal-title">
+                      {meal.imageUrl && (
+                        <img className="meal-thumb" src={meal.imageUrl} alt=""
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                      )}
+                      <div>
+                        <strong>{meal.foodName}</strong>
+                        <small className="muted"> · {formatTime(meal.date)}</small>
+                        {meal.items?.length > 0 && (
+                          <small className="muted meal-items">{meal.items.map((item) => item.name).join(', ')}</small>
+                        )}
+                      </div>
+                    </div>
+                    <div className="entry-actions">
+                      <strong>{meal.calories} kcal</strong>
+                      <button type="button" className="icon-btn small" onClick={() => logAgain(meal)}
+                        title="Log again today" aria-label="Log again today"><Icon name="repeat" size={16} /></button>
+                      <button type="button" className="icon-btn small danger" onClick={() => deleteMeal(meal)}
+                        title="Delete" aria-label="Delete meal"><Icon name="trash" size={16} /></button>
+                    </div>
+                  </div>
 
-            <div
-              key={meal._id}
-              style={{
-                padding: '1rem',
-                marginBottom: '1rem',
-                borderRadius: '12px',
-                background: '#f7f7ff',
-                border:
-                  '1px solid #e5e5e5'
-              }}
-            >
-
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    'space-between',
-                  alignItems: 'center',
-                  gap: '1rem'
-                }}
-              >
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  {meal.imageUrl && (
-                    <img
-                      src={meal.imageUrl}
-                      alt={meal.foodName}
-                      style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px' }}
-                      onError={(e) => { e.target.style.display = 'none'; }}
-                    />
-                  )}
-
-                  <div>
-
-                    <strong style={{ fontSize: '0.8rem', color: '#667eea' }}>
-                      {meal.mealType.toUpperCase()}
-                    </strong>
-
-                    <h3 style={{ margin: '0.2rem 0' }}>
-                      {meal.foodName}
-                    </h3>
-
-                    <small style={{ color: '#888' }}>
-                      {formatTime(meal.date)}
-                    </small>
-
+                  <div className="macro-chips">
+                    <span>P {meal.protein || 0}g</span>
+                    <span>C {meal.carbs || 0}g</span>
+                    <span>F {meal.fat || 0}g</span>
                   </div>
                 </div>
-
-                <strong style={{ fontSize: '1.1rem', color: '#2d3748' }}>
-                  {meal.calories} kcal
-                </strong>
-
-              </div>
-
-              <div
-                style={{
-                  marginTop: '0.75rem',
-                  display: 'flex',
-                  gap: '1rem',
-                  flexWrap: 'wrap'
-                }}
-              >
-
-                <span>
-                  Protein:{' '}
-                  {meal.protein || 0}g
-                </span>
-
-                <span>
-                  Carbs:{' '}
-                  {meal.carbs || 0}g
-                </span>
-
-                <span>
-                  Fat:{' '}
-                  {meal.fat || 0}g
-                </span>
-
-              </div>
-
+              ))}
             </div>
-
           ))
-
         )}
-
       </div>
-
     </div>
   );
 }
