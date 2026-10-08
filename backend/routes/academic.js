@@ -3,28 +3,13 @@ const router = express.Router();
 
 const AcademicGoal = require('../models/AcademicGoal');
 const authMiddleware = require('../middleware/authMiddleware');
-const { daysLeft, isAtRisk, refreshOverdueGoals, startOfDay } = require('../utils/insights');
+const { daysLeft, isAtRisk, refreshOverdueGoals } = require('../utils/insights');
+const { statusFor, syncProgressFromMilestones } = require('../utils/goalHelpers');
 
 router.use(authMiddleware);
 
 const CATEGORIES = ['exam', 'project', 'assignment', 'course'];
 const PRIORITIES = ['low', 'medium', 'high'];
-
-// Status follows progress, but a past deadline means "overdue"
-const statusFor = (progress, deadline) => {
-  if (progress >= 100) return 'completed';
-  if (deadline && startOfDay(deadline) < startOfDay()) return 'overdue';
-  return progress > 0 ? 'in-progress' : 'not-started';
-};
-
-// When a goal has milestones, progress = % of milestones completed
-const syncProgressFromMilestones = (goal) => {
-  if (goal.milestones.length > 0) {
-    const done = goal.milestones.filter((m) => m.completed).length;
-    goal.progress = Math.round((done / goal.milestones.length) * 100);
-  }
-  goal.status = statusFor(goal.progress, goal.deadline);
-};
 
 // Add computed fields the UI needs
 const decorate = (goal) => ({

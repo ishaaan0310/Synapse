@@ -11,6 +11,7 @@ const AcademicGoal = require('../models/AcademicGoal');
 const Document = require('../models/Document');
 const ChatMessage = require('../models/ChatMessage');
 const DigitalTwinProfile = require('../models/DigitalTwinProfile');
+const AgentAction = require('../models/AgentAction');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -199,6 +200,7 @@ router.delete('/', async (req, res, next) => {
       Document.deleteMany({ user: req.userId }),
       ChatMessage.deleteMany({ user: req.userId }),
       DigitalTwinProfile.deleteMany({ user: req.userId }),
+      AgentAction.deleteMany({ user: req.userId }),
       User.deleteOne({ _id: req.userId })
     ]);
 

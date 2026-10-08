@@ -65,3 +65,54 @@ See `backend/.env.example` and `frontend/.env.example`. New optional settings:
 - `REACT_APP_API_URL` (frontend): API base URL. Defaults to `http://localhost:5000/api`.
 
 Shared logic for the dashboard, digital twin and chat lives in `backend/utils/insights.js`.
+
+---
+
+# Agentic AI Twin (Google Gemini)
+
+The AI Twin chat can now run as an **AI agent**. Gemini decides which of the app's tools to use, reads your real data, and can propose changes (log a meal, create a study plan, tick off milestones and more). **Nothing is saved until you click Confirm** on the card in the chat.
+
+## Turn it on
+1. Get a free API key at https://aistudio.google.com/apikey
+2. Add to `backend/.env`:
+   ```
+   GEMINI_API_KEY=your-key-here
+   GEMINI_MODEL=gemini-3.8-flash
+   ```
+3. Restart the backend. The terminal shows `AI agent: ON`, and the chat shows the ✨ AI agent badge.
+
+Without a key, the chat keeps using the built-in keyword answers. If Gemini fails (rate limit, network), that message automatically falls back to the built-in answer.
+
+Requires Node.js 18+ (uses the built-in `fetch`). No new npm packages.
+
+## What it can do
+| Tool | Type | What it does |
+|---|---|---|
+| get_overview | read | Wellness score, averages, today's nutrition, deadlines, recommendations |
+| get_health_logs | read | Health entries for the last N days |
+| get_meals | read | A day's meals, or daily totals for N days |
+| get_academic_goals | read | Goals with milestones and ids |
+| search_documents | read | Document metadata search |
+| log_meal | write ✋ | Logs a meal (estimates calories/macros if you don't give them) |
+| log_health_metric | write ✋ | Logs sleep, steps, water, weight, heart rate |
+| create_goal | write ✋ | Creates a goal with milestones (study plans) |
+| add_milestones | write ✋ | Adds milestones to a goal |
+| set_milestone_status | write ✋ | Ticks or unticks a milestone |
+| update_goal | write ✋ | Changes deadline, priority, title or progress |
+| set_nutrition_goals | write ✋ | Changes daily targets |
+
+✋ = shown as a confirmation card and only applied after you click Confirm.
+
+## Safety
+- Tools always use the logged-in user's id from the server, so the model can't access other users' data.
+- Every write is validated (ranges, enums, dates, ownership) before it's proposed, and again when applied.
+- Confirm is atomic, so double-clicks can't apply a change twice. Proposals expire after 24 hours.
+- No delete tools. At most 5 proposed changes and 6 model steps per message. Each user is limited to 12 messages a minute.
+
+## Files
+- `backend/agent/gemini.js`: Gemini REST client
+- `backend/agent/tools.js`: tool definitions (read and write)
+- `backend/agent/agent.js`: agent loop and confirm/cancel
+- `backend/routes/agent.js`: `GET /api/agent/status`, `POST /api/agent/actions/:id/confirm`, `POST /api/agent/actions/:id/cancel`
+- `backend/models/AgentAction.js`: stored proposals
+- `backend/utils/goalHelpers.js`: goal progress rules shared with the Academic page

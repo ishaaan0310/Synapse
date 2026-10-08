@@ -1465,6 +1465,83 @@ a.stat-card:hover {
   gap: 10px;
 }
 
+/* ---- AI agent confirmation cards ---- */
+
+.chat-page .page-header .pill {
+  margin-top: 6px;
+  display: inline-block;
+}
+
+.action-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.action-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+
+.action-card.status-confirmed {
+  border-left-color: var(--success);
+}
+
+.action-card.status-cancelled,
+.action-card.status-expired {
+  border-left-color: var(--muted);
+  opacity: 0.7;
+}
+
+.action-card.status-failed {
+  border-left-color: var(--danger);
+}
+
+.action-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-icon {
+  font-size: 1.1rem;
+}
+
+.action-details {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 28px;
+  font-size: 0.875rem;
+  color: var(--muted);
+  display: grid;
+  gap: 2px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.action-status {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.action-card.status-confirmed .action-status {
+  color: var(--success);
+}
+
+.action-card.status-failed .action-status {
+  color: var(--danger);
+}
+
 /* =========================================
    PROFILE
    ========================================= */
@@ -1836,6 +1913,16 @@ a.stat-card:hover {
 
   .bubble {
     max-width: 88%;
+  }
+
+  .chat-card .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .chat-card .chip {
+    white-space: nowrap;
   }
 
   .inline-form {

@@ -2,8 +2,12 @@ const express = require('express');
 const router = express.Router();
 
 const ChatMessage = require('../models/ChatMessage');
+const AgentAction = require('../models/AgentAction');
+const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 const { buildInsights, TARGETS } = require('../utils/insights');
+const { runAgent } = require('../agent/agent');
+const { isAgentEnabled } = require('../agent/gemini');
 
 router.use(authMiddleware);
 
@@ -16,7 +20,8 @@ router.get('/', async (req, res) => {
     const latest = await ChatMessage
       .find({ user: req.userId })
       .sort({ timestamp: -1 })
-      .limit(100);
+      .limit(100)
+      .populate('actions');
 
     res.json(latest.reverse());
 
@@ -262,6 +267,22 @@ async function generateTwinResponse(userId, message) {
 // SEND MESSAGE
 // ==========================================
 
+// Simple per-user rate limit so one user can't burn the Gemini quota
+const RATE_LIMIT = { windowMs: 60 * 1000, max: 12 };
+const recentRequests = new Map();
+
+const isRateLimited = (userId) => {
+  const now = Date.now();
+  const times = (recentRequests.get(userId) || []).filter((t) => now - t < RATE_LIMIT.windowMs);
+  if (times.length >= RATE_LIMIT.max) {
+    recentRequests.set(userId, times);
+    return true;
+  }
+  times.push(now);
+  recentRequests.set(userId, times);
+  return false;
+};
+
 router.post('/', async (req, res) => {
   try {
 
@@ -279,27 +300,87 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const response = await generateTwinResponse(req.userId, content);
+    if (isRateLimited(String(req.userId))) {
+      return res.status(429).json({
+        message: 'You\'re sending messages too quickly. Please wait a moment.'
+      });
+    }
+
+    let reply;
+
+    // ------------------------------------------
+    // 1) Agentic AI (Gemini) when GEMINI_API_KEY is set
+    // ------------------------------------------
+    if (isAgentEnabled()) {
+      try {
+        const [history, user] = await Promise.all([
+          ChatMessage.find({ user: req.userId }).sort({ timestamp: -1 }).limit(12),
+          User.findById(req.userId).select('name')
+        ]);
+
+        const result = await runAgent({
+          userId: req.userId,
+          userName: user?.name?.split(' ')[0],
+          history: history.reverse(),
+          message: content
+        });
+
+        reply = {
+          text: result.text,
+          module: 'general',
+          source: 'agent',
+          actions: result.actions
+        };
+      } catch (error) {
+        console.error('Agent error:', error.message);
+
+        // Fall back to the built-in answers so chat keeps working
+        const fallback = await generateTwinResponse(req.userId, content);
+        reply = {
+          text: `⚠️ ${error.message} Here's a quick answer instead:\n\n${fallback.text}`,
+          module: fallback.module,
+          source: 'rules',
+          actions: []
+        };
+      }
+    } else {
+      // ------------------------------------------
+      // 2) Built-in keyword answers (no API key)
+      // ------------------------------------------
+      const response = await generateTwinResponse(req.userId, content);
+      reply = { text: response.text, module: response.module, source: 'rules', actions: [] };
+    }
 
     const userMessage = await ChatMessage.create({
       user: req.userId,
       role: 'user',
       content,
-      module: response.module
+      module: reply.module
     });
 
     const assistantMessage = await ChatMessage.create({
       user: req.userId,
       role: 'assistant',
-      content: response.text,
-      module: response.module,
+      content: reply.text,
+      module: reply.module,
+      source: reply.source,
+      actions: reply.actions.map((a) => a._id),
       // keep ordering stable even within the same millisecond
       timestamp: new Date(userMessage.timestamp.getTime() + 1)
     });
 
+    // Link proposed actions to the message they belong to
+    await Promise.all(reply.actions.map((a) => {
+      a.message = assistantMessage._id;
+      return a.save();
+    }));
+
+    const assistantPayload = assistantMessage.toObject();
+    assistantPayload.actions = reply.actions.map((a) => a.toObject());
+
     res.status(201).json({
       userMessage,
-      assistantMessage
+      assistantMessage: assistantPayload
     });
 
   } catch (error) {
@@ -320,6 +401,7 @@ router.post('/', async (req, res) => {
 router.delete('/', async (req, res) => {
   try {
     const result = await ChatMessage.deleteMany({ user: req.userId });
+    await AgentAction.deleteMany({ user: req.userId });
     res.json({ message: 'Chat history cleared', deleted: result.deletedCount });
   } catch (error) {
     console.error('Clear chat error:', error);

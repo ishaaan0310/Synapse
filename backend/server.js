@@ -60,6 +60,7 @@ app.use('/api/documents', require('./routes/documents'));
 app.use('/api/chat', require('./routes/chat'));
 app.use('/api/digital-twin', require('./routes/digitalTwin'));
 app.use('/api/profile', require('./routes/profile'));
+app.use('/api/agent', require('./routes/agent'));
 
 // ==========================================
 // ROOT HEALTH CHECK
@@ -153,6 +154,11 @@ const startServer = async () => {
 
     app.listen(PORT, () => {
       console.log(`Synapse API running on port ${PORT}`);
+      console.log(
+        process.env.GEMINI_API_KEY
+          ? `AI agent: ON (Gemini ${process.env.GEMINI_MODEL || 'gemini-3.8-flash'})`
+          : 'AI agent: OFF (add GEMINI_API_KEY to .env to enable)'
+      );
       console.log(`http://localhost:${PORT}`);
     });
 
