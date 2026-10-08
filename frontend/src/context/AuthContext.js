@@ -1,17 +1,33 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import api from '../utils/api';
 
 const AuthContext = createContext();
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
+// Never crash the whole app because localStorage holds bad JSON
+const readSavedUser = () => {
+  try {
     const savedUser = localStorage.getItem('synapse_user');
     return savedUser ? JSON.parse(savedUser) : null;
-  });
+  } catch {
+    localStorage.removeItem('synapse_user');
+    return null;
+  }
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(readSavedUser);
 
   const [token, setToken] = useState(() => {
     return localStorage.getItem('synapse_token');
   });
+
+  const saveSession = (token, user) => {
+    localStorage.setItem('synapse_token', token);
+    localStorage.setItem('synapse_user', JSON.stringify(user));
+
+    setToken(token);
+    setUser(user);
+  };
 
   const login = async (email, password) => {
     const response = await api.post('/auth/login', {
@@ -20,12 +36,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     const { token, user } = response.data;
-
-    localStorage.setItem('synapse_token', token);
-    localStorage.setItem('synapse_user', JSON.stringify(user));
-
-    setToken(token);
-    setUser(user);
+    saveSession(token, user);
 
     return user;
   };
@@ -38,22 +49,26 @@ export const AuthProvider = ({ children }) => {
     });
 
     const { token, user } = response.data;
-
-    localStorage.setItem('synapse_token', token);
-    localStorage.setItem('synapse_user', JSON.stringify(user));
-
-    setToken(token);
-    setUser(user);
+    saveSession(token, user);
 
     return user;
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('synapse_token');
     localStorage.removeItem('synapse_user');
 
     setToken(null);
     setUser(null);
+  }, []);
+
+  // Used by the Profile page after the name changes
+  const updateUser = (changes) => {
+    setUser((current) => {
+      const next = { ...current, ...changes };
+      localStorage.setItem('synapse_user', JSON.stringify(next));
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -72,6 +87,7 @@ export const AuthProvider = ({ children }) => {
         login,
         register,
         logout,
+        updateUser,
         isAuthenticated: !!token
       }}
     >

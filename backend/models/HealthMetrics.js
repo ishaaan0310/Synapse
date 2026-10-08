@@ -9,7 +9,7 @@ const healthMetricSchema = new mongoose.Schema({
   sleepQuality: { type: String, enum: ['poor', 'fair', 'good', 'excellent'] },
   steps: Number,
   heartRate: Number,
-  waterIntake: Number, // in liters
+  waterIntake: Number, // in litres
   source: { type: String, enum: ['manual', 'fitbit', 'healthkit'], default: 'manual' },
   notes: String
 });

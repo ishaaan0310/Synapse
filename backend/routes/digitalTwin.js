@@ -1,58 +1,95 @@
 const express = require('express');
 const router = express.Router();
+
 const DigitalTwinProfile = require('../models/DigitalTwinProfile');
-const HealthMetric = require('../models/HealthMetrics');
-const AcademicGoal = require('../models/AcademicGoal');
-const NutritionLog = require('../models/NutritionLog');
+const authMiddleware = require('../middleware/authMiddleware');
+const { buildInsights } = require('../utils/insights');
 
-// Get or create digital twin profile
-router.get('/:userId', async (req, res) => {
+// All digital twin routes require login. The profile always belongs to
+// the logged-in user. (Previously /:userId let anyone read any profile.)
+router.use(authMiddleware);
+
+// ==========================================
+// GET (AND REFRESH) MY DIGITAL TWIN
+// ==========================================
+
+router.get('/', async (req, res, next) => {
   try {
-    let profile = await DigitalTwinProfile.findOne({ user: req.params.userId });
-    
-    if (!profile) {
-      // Calculate aggregates
-      const healthMetrics = await HealthMetric.find({ user: req.params.userId }).sort({ date: -1 }).limit(30);
-      const goals = await AcademicGoal.find({ user: req.params.userId });
-      const nutritionLogs = await NutritionLog.find({ user: req.params.userId }).sort({ date: -1 }).limit(30);
+    const insights = await buildInsights(req.userId);
 
-      const avgSleep = healthMetrics.reduce((s, m) => s + (m.sleepHours || 0), 0) / (healthMetrics.length || 1);
-      const avgSteps = healthMetrics.reduce((s, m) => s + (m.steps || 0), 0) / (healthMetrics.length || 1);
-      const avgCalories = nutritionLogs.reduce((s, m) => s + (m.calories || 0), 0) / (nutritionLogs.length || 1);
-      
-      const pendingGoals = goals.filter(g => g.status !== 'completed').length;
-      const riskGoals = goals.filter(g => {
-        const daysLeft = (g.deadline - new Date()) / (1000 * 60 * 60 * 24);
-        return daysLeft < 7 && g.progress < 50;
-      }).map(g => g._id);
+    const existing = await DigitalTwinProfile.findOne({ user: req.userId });
 
-      profile = new DigitalTwinProfile({
-        user: req.params.userId,
-        healthSummary: { avgSleep, avgSteps, lastUpdated: new Date() },
-        nutritionSummary: { avgDailyCalories: avgCalories },
-        academicSummary: { 
-          completedGoals: goals.filter(g => g.status === 'completed').length,
-          pendingGoals,
-          avgProgress: goals.reduce((s, g) => s + g.progress, 0) / (goals.length || 1),
-          riskGoals
-        },
-        recommendations: generateRecommendations(avgSleep, pendingGoals, riskGoals)
-      });
-      await profile.save();
-    }
+    // Keep recommendations the user already dismissed hidden
+    const dismissed = new Set(
+      (existing?.recommendations || [])
+        .filter((r) => r.dismissed)
+        .map((r) => r.message)
+    );
 
-    res.json(profile);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const recommendations = insights.recommendations.map((r) => ({
+      ...r,
+      dismissed: dismissed.has(r.message)
+    }));
+
+    const profile = await DigitalTwinProfile.findOneAndUpdate(
+      { user: req.userId },
+      {
+        $set: {
+          healthSummary: {
+            avgSleep: insights.health.avgSleep7,
+            avgSteps: insights.health.avgSteps7,
+            weightTrend: insights.health.weightTrend,
+            lastUpdated: new Date()
+          },
+          nutritionSummary: {
+            avgDailyCalories: insights.nutrition.avgDailyCalories,
+            preferredMeals: insights.nutrition.favouriteFoods
+          },
+          academicSummary: {
+            completedGoals: insights.academic.completed,
+            pendingGoals: insights.academic.active,
+            avgProgress: insights.academic.avgProgress,
+            riskGoals: insights.academic.riskGoalIds
+          },
+          recommendations,
+          lastSynced: new Date()
+        }
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    res.json({
+      success: true,
+      profile,
+      wellnessScore: insights.wellnessScore,
+      scoreBreakdown: insights.scoreBreakdown,
+      streak: insights.streak
+    });
+  } catch (error) {
+    next(error);
   }
 });
 
-function generateRecommendations(avgSleep, pendingGoals, riskGoals) {
-  const recs = [];
-  if (avgSleep < 6) recs.push({ module: 'health', message: 'Increase sleep to improve focus', priority: 'high' });
-  if (pendingGoals > 5) recs.push({ module: 'academic', message: 'You have many pending goals. Prioritize high-impact tasks.', priority: 'medium' });
-  if (riskGoals.length > 0) recs.push({ module: 'academic', message: `${riskGoals.length} goals are at risk. Review your schedule.`, priority: 'high' });
-  return recs;
-}
+// ==========================================
+// DISMISS A RECOMMENDATION
+// ==========================================
+
+router.patch('/recommendations/:recId/dismiss', async (req, res, next) => {
+  try {
+    const profile = await DigitalTwinProfile.findOneAndUpdate(
+      { user: req.userId, 'recommendations._id': req.params.recId },
+      { $set: { 'recommendations.$.dismissed': true } },
+      { new: true }
+    );
+
+    if (!profile) {
+      return res.status(404).json({ success: false, message: 'Recommendation not found' });
+    }
+
+    res.json({ success: true, profile });
+  } catch (error) {
+    next(error);
+  }
+});
 
 module.exports = router;

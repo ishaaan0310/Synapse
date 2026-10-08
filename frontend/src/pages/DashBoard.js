@@ -1,220 +1,451 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../utils/api';
+import api, { getErrorMessage } from '../utils/api';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../components/Toast';
+import { ProgressBar, TwinCore, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
+
+const greeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+};
+
+// The five parts of the wellness score, each with its own colour
+const CORE_LABELS = {
+  sleep: 'Sleep',
+  activity: 'Activity',
+  hydration: 'Hydration',
+  nutrition: 'Nutrition',
+  academic: 'Academic'
+};
+
+const CORE_COLORS = {
+  sleep: 'var(--sleep)',
+  activity: 'var(--health)',
+  hydration: 'var(--water)',
+  nutrition: 'var(--nutrition)',
+  academic: 'var(--academic)'
+};
+
+const MODULE_ICONS = {
+  health: 'health',
+  nutrition: 'nutrition',
+  academic: 'academic',
+  document: 'documents',
+  general: 'twin'
+};
+
+const ALERT_ICONS = { danger: 'alert', warning: 'alert', info: 'info' };
+
+// Server alert text starts with an emoji; the icon replaces it here
+const stripEmoji = (text = '') => text.replace(/^[^\p{L}\p{N}"“]+/u, '');
+
+const daysText = (n) => (n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : `${n} days`);
 
 function Dashboard() {
+  const { user } = useAuth();
+  const toast = useToast();
+
   const [data, setData] = useState(null);
+  const [twin, setTwin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [quickActionMsg, setQuickActionMsg] = useState('');
+  const [loggingWater, setLoggingWater] = useState(false);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
-      setLoading(true);
       setError('');
-      const response = await api.get('/dashboard');
-      setData(response.data);
+
+      const [dashboardRes, twinRes] = await Promise.all([
+        api.get('/dashboard'),
+        api.get('/digital-twin').catch(() => null)
+      ]);
+
+      setData(dashboardRes.data);
+      setTwin(twinRes?.data?.profile || null);
     } catch (err) {
       console.error('Dashboard error:', err);
-      setError(
-        err.response?.data?.message ||
-        'Unable to load dashboard data'
-      );
+      setError(getErrorMessage(err, 'Unable to load dashboard data'));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
 
-  const handleQuickWaterLog = async () => {
+  const dismissRecommendation = async (recId) => {
     try {
-      await api.post('/health', {
-        waterIntake: 0.5,
-        notes: 'Quick +500ml water intake'
-      });
-      setQuickActionMsg('💧 Logged +500ml water!');
-      await fetchDashboard();
-      setTimeout(() => setQuickActionMsg(''), 3000);
+      const response = await api.patch(`/digital-twin/recommendations/${recId}/dismiss`);
+      setTwin(response.data.profile);
     } catch (err) {
-      console.error('Quick water log error:', err);
+      toast.error(getErrorMessage(err, 'Could not dismiss suggestion'));
+    }
+  };
+
+  // Quick action: log a glass of water (500 ml) without leaving the dashboard
+  const quickLogWater = async () => {
+    try {
+      setLoggingWater(true);
+      await api.post('/health', { waterIntake: 0.5, notes: 'Quick +500 ml water' });
+      toast.success('Logged 500 ml of water');
+      await fetchDashboard();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not log water'));
+    } finally {
+      setLoggingWater(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="page">
-        <div className="loading">
-          Loading your Synapse Digital Twin dashboard...
+      <div className="page" aria-busy="true">
+        <Skeleton height={44} />
+        <div className="hero section">
+          <div className="hero-core"><Skeleton height={220} /></div>
+          <div className="hero-today"><Skeleton lines={5} /></div>
+        </div>
+        <div className="two-col section">
+          <div className="card"><Skeleton lines={4} /></div>
+          <div className="card"><Skeleton lines={4} /></div>
         </div>
       </div>
     );
   }
 
-  if (error || !data) {
+  if (error) {
     return (
       <div className="page">
         <h2>Dashboard</h2>
-        <div className="error-message">
-          {error || 'Dashboard data not available'}
-        </div>
+        <div className="error-message">{error}</div>
+        <button className="btn" onClick={() => { setLoading(true); fetchDashboard(); }}>
+          Try again
+        </button>
       </div>
     );
   }
 
-  const { goals, healthLogs, meals, documents, latestHealth, todayNutrition, alerts, recentActivity } = data;
+  const nutrition = data.todayNutrition || { totals: {}, goals: {} };
+  const latest = data.latestHealth;
+  const academic = data.academic || { upcomingDeadlines: [] };
+  const recommendations = twin
+    ? twin.recommendations.filter((r) => !r.dismissed)
+    : (data.recommendations || []);
+
+  const isNewUser =
+    data.healthLogs === 0 && data.meals === 0 && data.goals === 0 && data.documents === 0;
+
+  const calories = Math.round(nutrition.totals.calories || 0);
+  const protein = Math.round(nutrition.totals.protein || 0);
 
   return (
-    <div className="page">
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-        <h2>🧠 Synapse Executive Dashboard</h2>
-        <span style={{ fontSize: '0.9rem', background: '#edf2f7', padding: '0.4rem 0.8rem', borderRadius: '20px', color: '#4a5568', fontWeight: 'bold' }}>
-          Digital Twin Active
-        </span>
-      </div>
-
-      {quickActionMsg && (
-        <div style={{ padding: '0.75rem 1rem', background: '#e6fffa', color: '#234e52', borderRadius: '8px', marginBottom: '1.25rem', fontWeight: 'bold' }}>
-          {quickActionMsg}
+    <div className="page dashboard">
+      <header className="page-header">
+        <div>
+          <h2 className="greeting">{greeting()}, {user?.name?.split(' ')[0] || 'there'}</h2>
+          <p className="muted">
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
         </div>
+
+        {data.streak > 0 && (
+          <div className="streak-badge" title="Days in a row with a health or meal log">
+            <Icon name="flame" size={18} />
+            {data.streak}-day streak
+          </div>
+        )}
+      </header>
+
+      {isNewUser && (
+        <section className="card welcome-card">
+          <h3>Your twin learns from what you log</h3>
+          <p>Add something in any area and your dashboard will fill in.</p>
+          <div className="quick-actions">
+            <Link to="/health" className="quick-action mod-health"><Icon name="health" size={18} />Log health</Link>
+            <Link to="/nutrition" className="quick-action mod-nutrition"><Icon name="nutrition" size={18} />Log a meal</Link>
+            <Link to="/academic" className="quick-action mod-academic"><Icon name="academic" size={18} />Add a goal</Link>
+            <Link to="/documents" className="quick-action mod-documents"><Icon name="documents" size={18} />Upload a document</Link>
+          </div>
+        </section>
       )}
 
-      {/* ================================
-          LIVE ALERTS BANNER
-      ================================= */}
-      {alerts && alerts.length > 0 && (
-        <div className="card" style={{ borderLeft: '5px solid #ed8936', background: '#fffaf0', marginBottom: '1.5rem' }}>
-          <h3 style={{ color: '#c05621', marginTop: 0 }}>🚨 Live Health & Nutrition Warnings</h3>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-            {alerts.map((a, idx) => (
-              <div key={idx} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', background: '#feebc8', color: '#7b341e', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                {a.text}
-              </div>
+      {/* ============ HERO: TWIN CORE + TODAY ============ */}
+      <section className="hero">
+        <div className="hero-core">
+          <TwinCore
+            score={data.wellnessScore}
+            breakdown={data.scoreBreakdown}
+            labels={CORE_LABELS}
+            colors={CORE_COLORS}
+          />
+
+          <ul className="core-legend">
+            {Object.entries(CORE_LABELS).map(([key, label]) => (
+              <li key={key}>
+                <span className="legend-dot" style={{ background: CORE_COLORS[key] }} />
+                <span>{label}</span>
+                <strong>{data.scoreBreakdown?.[key] ?? '–'}</strong>
+              </li>
             ))}
+          </ul>
+        </div>
+
+        <div className="hero-today">
+          <div className="today-block">
+            <div className="block-header">
+              <h3>Today's food</h3>
+              <Link to="/nutrition" className="link">Log a meal</Link>
+            </div>
+
+            <div className="today-meter mod-nutrition">
+              <div className="meter-row">
+                <span><Icon name="flame" size={16} /> Calories</span>
+                <span className="num"><strong>{calories}</strong> / {nutrition.goals.calories} kcal</span>
+              </div>
+              <ProgressBar value={calories} max={nutrition.goals.calories || 2000} color="var(--nutrition)" />
+            </div>
+
+            <div className="today-meter">
+              <div className="meter-row">
+                <span><Icon name="protein" size={16} /> Protein</span>
+                <span className="num"><strong>{protein}</strong> / {nutrition.goals.protein} g</span>
+              </div>
+              <ProgressBar value={protein} max={nutrition.goals.protein || 100} color="var(--brand)" />
+            </div>
+          </div>
+
+          <div className="today-block">
+            <div className="block-header">
+              <h3>Latest health log</h3>
+              <div className="block-actions">
+                <button type="button" className="chip water-chip" onClick={quickLogWater} disabled={loggingWater}>
+                  <Icon name="water" size={15} />{loggingWater ? 'Logging…' : '+500 ml water'}
+                </button>
+                <Link to="/health" className="link">Log health</Link>
+              </div>
+            </div>
+
+            {latest ? (
+              <div className="vitals">
+                <div className="vital" style={{ '--tone': 'var(--sleep)' }}>
+                  <Icon name="sleep" size={18} />
+                  <strong className="num">{latest.sleepHours ?? '–'}<small>h</small></strong>
+                  <span>Sleep</span>
+                </div>
+                <div className="vital" style={{ '--tone': 'var(--health)' }}>
+                  <Icon name="steps" size={18} />
+                  <strong className="num">{latest.steps?.toLocaleString() ?? '–'}</strong>
+                  <span>Steps</span>
+                </div>
+                <div className="vital" style={{ '--tone': 'var(--health)' }}>
+                  <Icon name="heart" size={18} />
+                  <strong className="num">{latest.heartRate ?? '–'}<small>bpm</small></strong>
+                  <span>Heart rate</span>
+                </div>
+                <div className="vital" style={{ '--tone': 'var(--water)' }}>
+                  <Icon name="water" size={18} />
+                  <strong className="num">{latest.waterIntake ?? '–'}<small>L</small></strong>
+                  <span>Water</span>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">No health data yet. Log sleep, steps or water to see it here.</p>
+            )}
+
+            {data.healthAverages?.sleep !== null && data.healthAverages?.sleep !== undefined && (
+              <p className="muted small">
+                Last 7 days: {data.healthAverages.sleep}h sleep and {data.healthAverages.steps?.toLocaleString()} steps on average
+                {data.healthAverages.weightTrend !== 'not enough data' && `, weight ${data.healthAverages.weightTrend}`}.
+              </p>
+            )}
           </div>
         </div>
+      </section>
+
+      {/* ============ ALERTS ============ */}
+      {data.alerts?.length > 0 && (
+        <section className="alerts section" aria-label="Alerts">
+          {data.alerts.map((alert, i) => (
+            <div key={i} className={`alert alert-${alert.type}`}>
+              <Icon name={ALERT_ICONS[alert.type] || 'info'} size={18} />
+              <span>{stripEmoji(alert.text)}</span>
+            </div>
+          ))}
+        </section>
       )}
 
-      {/* ================================
-          DIGITAL TWIN SUMMARY METRICS
-      ================================= */}
-      <h3 style={{ marginBottom: '1rem', color: '#2d3748' }}>📊 Digital Twin Overview</h3>
-      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+      {/* ============ DIGITAL TWIN SUGGESTIONS ============ */}
+      {recommendations.length > 0 && (
+        <section className="card section twin-card">
+          <div className="card-header">
+            <h3><Icon name="sparkle" size={20} className="title-icon" /> Your twin suggests</h3>
+            <Link to="/chat" className="link">Ask your twin</Link>
+          </div>
 
-        <div className="stat-card">
-          <h3>Academic Goals</h3>
-          <p className="stat-number" style={{ color: '#667eea' }}>
-            {goals}
-          </p>
-          <span>Total Goals Tracked</span>
-        </div>
+          <ul className="recommendations">
+            {recommendations.slice(0, 5).map((rec, i) => (
+              <li key={rec._id || i} className={`recommendation priority-${rec.priority} mod-${rec.module === 'document' ? 'documents' : rec.module}`}>
+                <span className="rec-icon"><Icon name={MODULE_ICONS[rec.module] || 'twin'} size={18} /></span>
+                <p>{rec.message}</p>
+                {rec._id && (
+                  <button
+                    type="button"
+                    className="icon-btn small ghost"
+                    onClick={() => dismissRecommendation(rec._id)}
+                    title="Dismiss"
+                    aria-label="Dismiss suggestion"
+                  >
+                    <Icon name="x" size={16} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
-        <div className="stat-card">
-          <h3>Latest Sleep</h3>
-          <p className="stat-number" style={{ color: '#48bb78' }}>
-            {latestHealth?.sleepHours ? `${latestHealth.sleepHours}h` : '-'}
-          </p>
-          <span>{latestHealth?.sleepQuality ? `Quality: ${latestHealth.sleepQuality} (${healthLogs} total logs)` : `${healthLogs} Total Health Logs`}</span>
-        </div>
+      {/* ============ DEADLINES + EXPIRING DOCS ============ */}
+      <div className="two-col section">
+        <section className="card mod-academic">
+          <div className="card-header">
+            <h3><Icon name="calendar" size={20} className="title-icon" /> Upcoming deadlines</h3>
+            <Link to="/academic" className="link">All goals</Link>
+          </div>
 
-        <div className="stat-card">
-          <h3>Today's Calories</h3>
-          <p className="stat-number" style={{ color: '#ed8936' }}>
-            {todayNutrition?.totals?.calories || 0}
-          </p>
-          <span>/ {todayNutrition?.goals?.calories || 2000} kcal ({meals} meals total)</span>
-        </div>
-
-        <div className="stat-card">
-          <h3>Vault Documents</h3>
-          <p className="stat-number" style={{ color: '#9f7aea' }}>
-            {documents}
-          </p>
-          <span>Stored Documents</span>
-        </div>
-
-      </div>
-
-      {/* ================================
-          QUICK ACTIONS CENTER
-      ================================= */}
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3>⚡ Quick Action Shortcuts</h3>
-        <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
-          Perform instant data logging without navigating away.
-        </p>
-
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          <button
-            onClick={handleQuickWaterLog}
-            className="btn"
-            style={{ background: '#3182ce', color: '#fff' }}
-          >
-            💧 Quick Log +500ml Water
-          </button>
-
-          <Link to="/health" style={{ textDecoration: 'none' }}>
-            <button className="btn" style={{ background: '#48bb78', color: '#fff' }}>
-              😴 Log Sleep & Fitness
-            </button>
-          </Link>
-
-          <Link to="/nutrition" style={{ textDecoration: 'none' }}>
-            <button className="btn" style={{ background: '#ed8936', color: '#fff' }}>
-              🍽️ Log Meal & Macros
-            </button>
-          </Link>
-        </div>
-      </div>
-
-      {/* ================================
-          RECENT ACTIVITY STREAM
-      ================================= */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-
-        <div className="card">
-          <h3>❤️ Recent Health Metrics</h3>
-          {recentActivity?.health?.length > 0 ? (
-            recentActivity.health.map(item => (
-              <div key={item._id} style={{ padding: '0.75rem', borderBottom: '1px solid #edf2f7' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <strong>😴 {item.sleepHours || 0} hrs sleep</strong>
-                  <span style={{ color: '#718096' }}>{new Date(item.date).toLocaleDateString('en-IN')}</span>
-                </div>
-                <div style={{ fontSize: '0.8rem', color: '#4a5568', marginTop: '0.2rem' }}>
-                  🚶 {item.steps?.toLocaleString() || 0} steps | ❤️ {item.heartRate || 0} BPM
-                </div>
-              </div>
-            ))
+          {academic.upcomingDeadlines.length === 0 ? (
+            <p className="muted">
+              {academic.overdue > 0 ? `No upcoming deadlines, but ${academic.overdue} goal(s) are overdue.` : 'No upcoming deadlines.'}
+            </p>
           ) : (
-            <p style={{ color: '#888' }}>No health metrics logged yet.</p>
+            <ul className="list">
+              {academic.upcomingDeadlines.map((goal) => (
+                <li key={goal._id} className="list-item">
+                  <div className="list-main">
+                    <strong>{goal.title}</strong>
+                    <ProgressBar value={goal.progress} color={goal.atRisk ? 'var(--danger)' : 'var(--academic)'} />
+                  </div>
+                  <span className={`pill ${goal.daysLeft <= 2 ? 'pill-danger' : goal.atRisk ? 'pill-warning' : ''}`}>
+                    {daysText(goal.daysLeft)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </section>
 
-        <div className="card">
-          <h3>🍎 Recent Meals Logged</h3>
-          {recentActivity?.meals?.length > 0 ? (
-            recentActivity.meals.map(item => (
-              <div key={item._id} style={{ padding: '0.75rem', borderBottom: '1px solid #edf2f7' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <strong>🍽️ {item.foodName}</strong>
-                  <span style={{ color: '#718096' }}>{item.calories} kcal</span>
-                </div>
-                <div style={{ fontSize: '0.8rem', color: '#4a5568', marginTop: '0.2rem' }}>
-                  Category: {item.mealType?.toUpperCase()} | Protein: {item.protein || 0}g
-                </div>
-              </div>
-            ))
+        <section className="card mod-documents">
+          <div className="card-header">
+            <h3><Icon name="file" size={20} className="title-icon" /> Expiring documents</h3>
+            <Link to="/documents" className="link">Open vault</Link>
+          </div>
+
+          {(data.expiringDocuments || []).length === 0 ? (
+            <p className="muted">Nothing expires in the next 30 days.</p>
           ) : (
-            <p style={{ color: '#888' }}>No meals logged yet.</p>
+            <ul className="list">
+              {data.expiringDocuments.map((doc) => (
+                <li key={doc._id} className="list-item">
+                  <div className="list-main">
+                    <strong>{doc.title}</strong>
+                    <small className="muted cap">{doc.category === 'id' ? 'ID' : doc.category}</small>
+                  </div>
+                  <span className={`pill ${doc.daysLeft <= 7 ? 'pill-danger' : 'pill-warning'}`}>
+                    {daysText(doc.daysLeft)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-
+        </section>
       </div>
 
+      {/* ============ RECENT ACTIVITY ============ */}
+      <div className="two-col section">
+        <section className="card mod-health">
+          <div className="card-header">
+            <h3><Icon name="health" size={20} className="title-icon" /> Recent health logs</h3>
+            <Link to="/health" className="link">All logs</Link>
+          </div>
+          {data.recentActivity?.health?.length > 0 ? (
+            <ul className="activity">
+              {data.recentActivity.health.map((item) => (
+                <li key={item._id}>
+                  <div>
+                    <strong>
+                      {[
+                        item.sleepHours != null && `${item.sleepHours}h sleep`,
+                        item.steps != null && `${item.steps.toLocaleString()} steps`,
+                        item.waterIntake != null && `${item.waterIntake}L water`
+                      ].filter(Boolean).join(', ') || 'Health entry'}
+                    </strong>
+                    {item.heartRate != null && <small className="muted">{item.heartRate} bpm resting heart rate</small>}
+                  </div>
+                  <time className="muted small">{new Date(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</time>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No health logs yet.</p>
+          )}
+        </section>
+
+        <section className="card mod-nutrition">
+          <div className="card-header">
+            <h3><Icon name="nutrition" size={20} className="title-icon" /> Recent meals</h3>
+            <Link to="/nutrition" className="link">All meals</Link>
+          </div>
+          {data.recentActivity?.meals?.length > 0 ? (
+            <ul className="activity">
+              {data.recentActivity.meals.map((item) => (
+                <li key={item._id}>
+                  <div>
+                    <strong>{item.foodName}</strong>
+                    <small className="muted cap">{item.mealType}, {item.protein || 0}g protein</small>
+                  </div>
+                  <span className="num small"><strong>{item.calories}</strong> kcal</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No meals logged yet.</p>
+          )}
+        </section>
+      </div>
+
+      {/* ============ COUNTS ============ */}
+      <div className="stats-grid section">
+        <Link to="/academic" className="stat-card mod-academic">
+          <span className="stat-icon"><Icon name="academic" size={18} /></span>
+          <h3>Academic goals</h3>
+          <p className="stat-number">{data.goals}</p>
+          <small className="muted">{academic.completed ?? 0} completed, {academic.avgProgress ?? 0}% average progress</small>
+        </Link>
+
+        <Link to="/health" className="stat-card mod-health">
+          <span className="stat-icon"><Icon name="health" size={18} /></span>
+          <h3>Health logs</h3>
+          <p className="stat-number">{data.healthLogs}</p>
+          <small className="muted">All time</small>
+        </Link>
+
+        <Link to="/nutrition" className="stat-card mod-nutrition">
+          <span className="stat-icon"><Icon name="nutrition" size={18} /></span>
+          <h3>Meals logged</h3>
+          <p className="stat-number">{data.meals}</p>
+          <small className="muted">All time</small>
+        </Link>
+
+        <Link to="/documents" className="stat-card mod-documents">
+          <span className="stat-icon"><Icon name="documents" size={18} /></span>
+          <h3>Documents</h3>
+          <p className="stat-number">{data.documents}</p>
+          <small className="muted">In your vault</small>
+        </Link>
+      </div>
     </div>
   );
 }
