@@ -81,9 +81,11 @@ async function runAgent({ userId, userName, history = [], message }) {
   const actions = [];
   const toolsUsed = [];
   const proposedKeys = new Set();
+  let activeModel; // set after the first call, then reused for this run
 
   for (let step = 0; step < MAX_STEPS; step += 1) {
-    const data = await generateContent({ systemInstruction, contents, functionDeclarations });
+    const data = await generateContent({ systemInstruction, contents, functionDeclarations, model: activeModel });
+    activeModel = data._model;
 
     const candidate = data.candidates?.[0];
     const content = candidate?.content;
