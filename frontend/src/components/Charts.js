@@ -236,3 +236,60 @@ export function ProgressBar({ value = 0, max = 100, color = 'var(--primary)' }) 
     </div>
   );
 }
+
+// ==========================================
+// TWIN CORE: the wellness score as one ring made of five arcs, one per
+// area (sleep, activity, hydration, nutrition, academic). Each arc's
+// length shows that area's score; the number in the middle is the total.
+// ==========================================
+export function TwinCore({ score, breakdown = {}, labels = {}, colors = {}, size = 220 }) {
+  const keys = Object.keys(labels);
+  const stroke = 14;
+  const radius = (size - stroke) / 2 - 4;
+  const circumference = 2 * Math.PI * radius;
+  const gap = 10; // px of empty space between arcs
+  const slot = circumference / Math.max(keys.length, 1);
+  const center = size / 2;
+
+  return (
+    <div className="twin-core" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img"
+        aria-label={`Wellness score ${score ?? 'not available'} out of 100`}>
+        {keys.map((key, i) => {
+          const value = breakdown[key];
+          const full = slot - gap;
+          const filled = value === null || value === undefined ? 0 : (Math.max(0, Math.min(100, value)) / 100) * full;
+          const rotation = -90 + (i * 360) / keys.length + (gap / 2 / circumference) * 360;
+          return (
+            <g key={key} transform={`rotate(${rotation} ${center} ${center})`}>
+              <circle cx={center} cy={center} r={radius} fill="none" className="core-track"
+                strokeWidth={stroke} strokeDasharray={`${full} ${circumference}`} strokeLinecap="round" />
+              {filled > 0 && (
+                <circle cx={center} cy={center} r={radius} fill="none" stroke={colors[key]}
+                  strokeWidth={stroke} strokeLinecap="round"
+                  strokeDasharray={`${filled} ${circumference}`}
+                  className="core-arc" style={{ animationDelay: `${i * 90}ms`, '--arc-len': filled }} />
+              )}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="twin-core-center">
+        <span className="core-score">{score ?? '–'}</span>
+        <span className="core-caption">{score === null || score === undefined ? 'Log data to start' : 'Wellness score'}</span>
+      </div>
+    </div>
+  );
+}
+
+// Grey placeholder blocks shown while data loads
+export function Skeleton({ lines = 3, height }) {
+  if (height) return <div className="skeleton" style={{ height }} aria-hidden="true" />;
+  return (
+    <div className="skeleton-stack" aria-hidden="true">
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="skeleton" style={{ width: `${92 - i * 14}%` }} />
+      ))}
+    </div>
+  );
+}

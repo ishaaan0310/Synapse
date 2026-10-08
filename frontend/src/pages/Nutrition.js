@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import api, { getErrorMessage, toDateInput } from '../utils/api';
 import { useToast } from '../components/Toast';
-import { BarChart, ProgressBar } from '../components/Charts';
+import { BarChart, ProgressBar, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 const EMPTY_MEAL = {
   mealType: 'breakfast',
@@ -15,17 +16,17 @@ const EMPTY_MEAL = {
 const DEFAULT_GOALS = { calories: 2000, protein: 100, carbs: 250, fat: 70 };
 
 const MEAL_TYPES = [
-  { value: 'breakfast', label: 'Breakfast', icon: '🌅' },
-  { value: 'lunch', label: 'Lunch', icon: '☀️' },
-  { value: 'dinner', label: 'Dinner', icon: '🌙' },
-  { value: 'snack', label: 'Snack', icon: '🍪' }
+  { value: 'breakfast', label: 'Breakfast', icon: 'sun' },
+  { value: 'lunch', label: 'Lunch', icon: 'nutrition' },
+  { value: 'dinner', label: 'Dinner', icon: 'moon' },
+  { value: 'snack', label: 'Snack', icon: 'bolt' }
 ];
 
 const MACROS = [
-  { key: 'calories', label: '🔥 Calories', unit: 'kcal', color: 'var(--primary)' },
-  { key: 'protein', label: '💪 Protein', unit: 'g', color: 'var(--success)' },
-  { key: 'carbs', label: '🍞 Carbs', unit: 'g', color: 'var(--warning)' },
-  { key: 'fat', label: '🥑 Fat', unit: 'g', color: 'var(--purple)' }
+  { key: 'calories', label: 'Calories', icon: 'flame', unit: 'kcal', color: 'var(--nutrition)' },
+  { key: 'protein', label: 'Protein', icon: 'protein', unit: 'g', color: 'var(--brand)' },
+  { key: 'carbs', label: 'Carbs', icon: 'grain', unit: 'g', color: 'var(--documents)' },
+  { key: 'fat', label: 'Fat', icon: 'drop', unit: 'g', color: 'var(--academic)' }
 ];
 
 // Pick a sensible default meal type from the time of day
@@ -228,13 +229,13 @@ function Nutrition() {
   const remaining = Math.round(goals.calories - totals.calories);
 
   return (
-    <div className="page">
+    <div className="page mod-nutrition">
       <div className="page-header">
-        <h2>🍎 Nutrition</h2>
+        <h2><span className="page-icon"><Icon name="nutrition" size={22} /></span>Nutrition</h2>
 
         <div className="date-nav">
           <button type="button" className="icon-btn" onClick={() => setSelectedDate(shiftDate(selectedDate, -1))}
-            aria-label="Previous day">‹</button>
+            aria-label="Previous day"><Icon name="chevronLeft" size={18} /></button>
           <input
             type="date"
             value={selectedDate}
@@ -242,7 +243,7 @@ function Nutrition() {
             onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
           />
           <button type="button" className="icon-btn" disabled={isToday}
-            onClick={() => setSelectedDate(shiftDate(selectedDate, 1))} aria-label="Next day">›</button>
+            onClick={() => setSelectedDate(shiftDate(selectedDate, 1))} aria-label="Next day"><Icon name="chevronRight" size={18} /></button>
           {!isToday && (
             <button type="button" className="btn btn-secondary small" onClick={() => setSelectedDate(today)}>
               Today
@@ -258,9 +259,9 @@ function Nutrition() {
       ================================= */}
       <div className="card">
         <div className="card-header">
-          <h3>📊 {dateLabel}'s Progress</h3>
+          <h3>{dateLabel === 'Today' ? "Today's progress" : `Progress for ${dateLabel}`}</h3>
           <button type="button" className="link-btn" onClick={() => setEditingGoals((v) => !v)}>
-            {editingGoals ? 'Cancel' : '🎯 Edit goals'}
+            {editingGoals ? 'Cancel' : <><Icon name="target" size={16} /> Edit goals</>}
           </button>
         </div>
 
@@ -281,7 +282,7 @@ function Nutrition() {
               </label>
             </div>
             <button type="submit" className="btn" disabled={savingGoals}>
-              {savingGoals ? 'Saving...' : 'Save Goals'}
+              {savingGoals ? 'Saving…' : 'Save goals'}
             </button>
           </form>
         )}
@@ -294,12 +295,12 @@ function Nutrition() {
             return (
               <div key={macro.key} className="macro">
                 <div className="macro-header">
-                  <strong>{macro.label}</strong>
-                  <span>{current} / {goal} {macro.unit}</span>
+                  <strong><Icon name={macro.icon} size={16} /> {macro.label}</strong>
+                  <span className="num"><strong>{current}</strong> / {goal} {macro.unit}</span>
                 </div>
                 <ProgressBar value={current} max={goal} color={pct > 110 ? 'var(--danger)' : macro.color} />
                 <small className="muted">
-                  {pct >= 100 ? (pct > 110 ? `${pct}%, over goal` : 'Goal achieved 🎯') : `${pct}% achieved`}
+                  {pct >= 100 ? (pct > 110 ? `${pct}%, over goal` : 'Goal reached') : `${pct}% achieved`}
                 </small>
               </div>
             );
@@ -318,7 +319,7 @@ function Nutrition() {
       ================================= */}
       <div className="card section">
         <div className="card-header">
-          <h3>📅 Last 7 Days</h3>
+          <h3>Last 7 days</h3>
           {weekly?.averageCalories > 0 && (
             <span className="muted">Avg {weekly.averageCalories.toLocaleString()} kcal/day</span>
           )}
@@ -335,7 +336,7 @@ function Nutrition() {
             targetLabel={`Goal ${weekly.goals.calories}`}
           />
         ) : (
-          <div className="loading"><div className="spinner" /></div>
+          <Skeleton height={240} />
         )}
       </div>
 
@@ -344,7 +345,7 @@ function Nutrition() {
       ================================= */}
       {isToday && (
         <div className="card section">
-          <h3>🍽️ Log Meal</h3>
+          <h3>Log a meal</h3>
 
           <form onSubmit={handleSubmit}>
             <div className="segmented">
@@ -355,7 +356,7 @@ function Nutrition() {
                   className={form.mealType === type.value ? 'active' : ''}
                   onClick={() => setForm({ ...form, mealType: type.value })}
                 >
-                  {type.icon} {type.label}
+                  <Icon name={type.icon} size={16} /> {type.label}
                 </button>
               ))}
             </div>
@@ -380,7 +381,7 @@ function Nutrition() {
             </div>
 
             <button type="submit" className="btn" disabled={saving}>
-              {saving ? 'Saving...' : 'Add Meal'}
+              {saving ? 'Saving…' : 'Add meal'}
             </button>
           </form>
         </div>
@@ -390,20 +391,20 @@ function Nutrition() {
           MEALS
       ================================= */}
       <div className="card section">
-        <h3>{dateLabel}'s Meals</h3>
+        <h3>{dateLabel === 'Today' ? "Today's meals" : `Meals on ${dateLabel}`}</h3>
 
         {loading ? (
-          <p className="muted">Loading meals...</p>
+          <Skeleton lines={3} />
         ) : meals.length === 0 ? (
           <div className="empty-state small">
-            <div className="empty-icon">🍽️</div>
+            <Icon name="nutrition" size={32} className="empty-icon" />
             <p>No meals logged {isToday ? 'today' : 'on this day'}.</p>
           </div>
         ) : (
           mealsByType.map((group) => (
             <div key={group.value} className="meal-group">
               <h4>
-                {group.icon} {group.label}
+                <Icon name={group.icon} size={17} /> {group.label}
                 <span className="muted"> · {Math.round(group.items.reduce((s, m) => s + (m.calories || 0), 0))} kcal</span>
               </h4>
 
@@ -417,9 +418,9 @@ function Nutrition() {
                     <div className="entry-actions">
                       <strong>{meal.calories} kcal</strong>
                       <button type="button" className="icon-btn small" onClick={() => logAgain(meal)}
-                        title="Log again today" aria-label="Log again today">🔁</button>
+                        title="Log again today" aria-label="Log again today"><Icon name="repeat" size={16} /></button>
                       <button type="button" className="icon-btn small danger" onClick={() => deleteMeal(meal)}
-                        title="Delete" aria-label="Delete meal">🗑️</button>
+                        title="Delete" aria-label="Delete meal"><Icon name="trash" size={16} /></button>
                     </div>
                   </div>
 

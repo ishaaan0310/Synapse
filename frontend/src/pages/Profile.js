@@ -3,6 +3,8 @@ import api, { getErrorMessage } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../components/Toast';
+import { Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 function Profile() {
   const { updateUser, logout } = useAuth();
@@ -111,7 +113,7 @@ function Profile() {
   };
 
   if (loading) {
-    return <div className="page"><div className="loading"><div className="spinner" />Loading profile...</div></div>;
+    return <div className="page narrow"><div className="card"><Skeleton lines={3} /></div><div className="card section"><Skeleton lines={4} /></div></div>;
   }
 
   if (error) {
@@ -120,7 +122,9 @@ function Profile() {
 
   return (
     <div className="page narrow">
-      <h2>👤 Profile & Settings</h2>
+      <div className="page-header">
+        <h2><span className="page-icon"><Icon name="user" size={22} /></span>Profile and settings</h2>
+      </div>
 
       <div className="card profile-header">
         <div className="avatar large">
@@ -202,7 +206,7 @@ function Profile() {
             <p className="muted small">Download all your health, nutrition, academic, document and chat data as JSON.</p>
           </div>
           <button type="button" className="btn btn-secondary" onClick={exportData} disabled={exporting}>
-            {exporting ? 'Preparing…' : '⬇️ Export'}
+            <Icon name="download" size={17} />{exporting ? 'Preparing…' : 'Export'}
           </button>
         </div>
       </div>

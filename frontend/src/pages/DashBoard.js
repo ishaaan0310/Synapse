@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import api, { getErrorMessage } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
-import { ProgressRing, ProgressBar } from '../components/Charts';
+import { ProgressBar, TwinCore, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 const greeting = () => {
   const hour = new Date().getHours();
@@ -12,26 +13,35 @@ const greeting = () => {
   return 'Good evening';
 };
 
-const scoreColor = (score) =>
-  score === null || score === undefined
-    ? 'var(--muted)'
-    : score >= 75 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--danger)';
+// The five parts of the wellness score, each with its own colour
+const CORE_LABELS = {
+  sleep: 'Sleep',
+  activity: 'Activity',
+  hydration: 'Hydration',
+  nutrition: 'Nutrition',
+  academic: 'Academic'
+};
 
-const BREAKDOWN_LABELS = {
-  sleep: '😴 Sleep',
-  activity: '🚶 Activity',
-  hydration: '💧 Hydration',
-  nutrition: '🍎 Nutrition',
-  academic: '📚 Academic'
+const CORE_COLORS = {
+  sleep: 'var(--sleep)',
+  activity: 'var(--health)',
+  hydration: 'var(--water)',
+  nutrition: 'var(--nutrition)',
+  academic: 'var(--academic)'
 };
 
 const MODULE_ICONS = {
-  health: '❤️',
-  nutrition: '🍎',
-  academic: '📚',
-  document: '📁',
-  general: '🧠'
+  health: 'health',
+  nutrition: 'nutrition',
+  academic: 'academic',
+  document: 'documents',
+  general: 'twin'
 };
+
+const ALERT_ICONS = { danger: 'alert', warning: 'alert', info: 'info' };
+
+// Server alert text starts with an emoji; the icon replaces it here
+const stripEmoji = (text = '') => text.replace(/^[^\p{L}\p{N}"“]+/u, '');
 
 const daysText = (n) => (n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : `${n} days`);
 
@@ -78,10 +88,15 @@ function Dashboard() {
 
   if (loading) {
     return (
-      <div className="page">
-        <div className="loading">
-          <div className="spinner" />
-          Loading your Synapse dashboard...
+      <div className="page" aria-busy="true">
+        <Skeleton height={44} />
+        <div className="hero section">
+          <div className="hero-core"><Skeleton height={220} /></div>
+          <div className="hero-today"><Skeleton lines={5} /></div>
+        </div>
+        <div className="two-col section">
+          <div className="card"><Skeleton lines={4} /></div>
+          <div className="card"><Skeleton lines={4} /></div>
         </div>
       </div>
     );
@@ -109,166 +124,181 @@ function Dashboard() {
   const isNewUser =
     data.healthLogs === 0 && data.meals === 0 && data.goals === 0 && data.documents === 0;
 
+  const calories = Math.round(nutrition.totals.calories || 0);
+  const protein = Math.round(nutrition.totals.protein || 0);
+
   return (
-    <div className="page">
-      <div className="page-header">
+    <div className="page dashboard">
+      <header className="page-header">
         <div>
-          <h2>{greeting()}, {user?.name?.split(' ')[0] || 'there'} 👋</h2>
+          <h2 className="greeting">{greeting()}, {user?.name?.split(' ')[0] || 'there'}</h2>
           <p className="muted">
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
         </div>
 
         {data.streak > 0 && (
-          <div className="streak-badge" title="Consecutive days with a health or meal log">
-            🔥 {data.streak}-day streak
+          <div className="streak-badge" title="Days in a row with a health or meal log">
+            <Icon name="flame" size={18} />
+            {data.streak}-day streak
           </div>
         )}
-      </div>
+      </header>
 
       {isNewUser && (
-        <div className="card welcome-card">
-          <h3>Welcome to Synapse! 🎉</h3>
-          <p>Your digital twin learns from what you log. Start with any of these:</p>
+        <section className="card welcome-card">
+          <h3>Your twin learns from what you log</h3>
+          <p>Add something in any area and your dashboard will fill in.</p>
           <div className="quick-actions">
-            <Link to="/health" className="quick-action">❤️ Log health</Link>
-            <Link to="/nutrition" className="quick-action">🍎 Log a meal</Link>
-            <Link to="/academic" className="quick-action">📚 Add a goal</Link>
-            <Link to="/documents" className="quick-action">📁 Upload a document</Link>
+            <Link to="/health" className="quick-action mod-health"><Icon name="health" size={18} />Log health</Link>
+            <Link to="/nutrition" className="quick-action mod-nutrition"><Icon name="nutrition" size={18} />Log a meal</Link>
+            <Link to="/academic" className="quick-action mod-academic"><Icon name="academic" size={18} />Add a goal</Link>
+            <Link to="/documents" className="quick-action mod-documents"><Icon name="documents" size={18} />Upload a document</Link>
+          </div>
+        </section>
+      )}
+
+      {/* ============ HERO: TWIN CORE + TODAY ============ */}
+      <section className="hero">
+        <div className="hero-core">
+          <TwinCore
+            score={data.wellnessScore}
+            breakdown={data.scoreBreakdown}
+            labels={CORE_LABELS}
+            colors={CORE_COLORS}
+          />
+
+          <ul className="core-legend">
+            {Object.entries(CORE_LABELS).map(([key, label]) => (
+              <li key={key}>
+                <span className="legend-dot" style={{ background: CORE_COLORS[key] }} />
+                <span>{label}</span>
+                <strong>{data.scoreBreakdown?.[key] ?? '–'}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="hero-today">
+          <div className="today-block">
+            <div className="block-header">
+              <h3>Today's food</h3>
+              <Link to="/nutrition" className="link">Log a meal</Link>
+            </div>
+
+            <div className="today-meter mod-nutrition">
+              <div className="meter-row">
+                <span><Icon name="flame" size={16} /> Calories</span>
+                <span className="num"><strong>{calories}</strong> / {nutrition.goals.calories} kcal</span>
+              </div>
+              <ProgressBar value={calories} max={nutrition.goals.calories || 2000} color="var(--nutrition)" />
+            </div>
+
+            <div className="today-meter">
+              <div className="meter-row">
+                <span><Icon name="protein" size={16} /> Protein</span>
+                <span className="num"><strong>{protein}</strong> / {nutrition.goals.protein} g</span>
+              </div>
+              <ProgressBar value={protein} max={nutrition.goals.protein || 100} color="var(--brand)" />
+            </div>
+          </div>
+
+          <div className="today-block">
+            <div className="block-header">
+              <h3>Latest health log</h3>
+              <Link to="/health" className="link">Log health</Link>
+            </div>
+
+            {latest ? (
+              <div className="vitals">
+                <div className="vital" style={{ '--tone': 'var(--sleep)' }}>
+                  <Icon name="sleep" size={18} />
+                  <strong className="num">{latest.sleepHours ?? '–'}<small>h</small></strong>
+                  <span>Sleep</span>
+                </div>
+                <div className="vital" style={{ '--tone': 'var(--health)' }}>
+                  <Icon name="steps" size={18} />
+                  <strong className="num">{latest.steps?.toLocaleString() ?? '–'}</strong>
+                  <span>Steps</span>
+                </div>
+                <div className="vital" style={{ '--tone': 'var(--health)' }}>
+                  <Icon name="heart" size={18} />
+                  <strong className="num">{latest.heartRate ?? '–'}<small>bpm</small></strong>
+                  <span>Heart rate</span>
+                </div>
+                <div className="vital" style={{ '--tone': 'var(--water)' }}>
+                  <Icon name="water" size={18} />
+                  <strong className="num">{latest.waterIntake ?? '–'}<small>L</small></strong>
+                  <span>Water</span>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">No health data yet. Log sleep, steps or water to see it here.</p>
+            )}
+
+            {data.healthAverages?.sleep !== null && data.healthAverages?.sleep !== undefined && (
+              <p className="muted small">
+                Last 7 days: {data.healthAverages.sleep}h sleep and {data.healthAverages.steps?.toLocaleString()} steps on average
+                {data.healthAverages.weightTrend !== 'not enough data' && `, weight ${data.healthAverages.weightTrend}`}.
+              </p>
+            )}
           </div>
         </div>
-      )}
+      </section>
 
       {/* ============ ALERTS ============ */}
       {data.alerts?.length > 0 && (
-        <div className="alerts">
+        <section className="alerts section" aria-label="Alerts">
           {data.alerts.map((alert, i) => (
             <div key={i} className={`alert alert-${alert.type}`}>
-              {alert.text}
+              <Icon name={ALERT_ICONS[alert.type] || 'info'} size={18} />
+              <span>{stripEmoji(alert.text)}</span>
             </div>
           ))}
-        </div>
+        </section>
       )}
 
-      {/* ============ TOP ROW: SCORE + TODAY ============ */}
-      <div className="dashboard-grid">
-        <div className="card score-card">
-          <h3>Wellness Score</h3>
-
-          <ProgressRing
-            value={data.wellnessScore ?? 0}
-            max={100}
-            size={150}
-            stroke={12}
-            color={scoreColor(data.wellnessScore)}
-            label={data.wellnessScore ?? '–'}
-            sublabel={data.wellnessScore === null ? 'needs data' : 'out of 100'}
-          />
-
-          <div className="breakdown">
-            {Object.entries(data.scoreBreakdown || {}).map(([key, value]) => (
-              <div key={key} className="breakdown-row">
-                <span>{BREAKDOWN_LABELS[key]}</span>
-                <div className="breakdown-bar">
-                  <ProgressBar value={value ?? 0} max={100} color={scoreColor(value)} />
-                </div>
-                <strong>{value ?? '–'}</strong>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3>Today's Nutrition</h3>
-            <Link to="/nutrition" className="link">Log meal →</Link>
-          </div>
-
-          <div className="rings-row">
-            <ProgressRing
-              value={nutrition.totals.calories || 0}
-              max={nutrition.goals.calories || 2000}
-              color="var(--primary)"
-              label={Math.round(nutrition.totals.calories || 0)}
-              sublabel={`/ ${nutrition.goals.calories} kcal`}
-            />
-            <ProgressRing
-              value={nutrition.totals.protein || 0}
-              max={nutrition.goals.protein || 100}
-              color="var(--success)"
-              label={`${Math.round(nutrition.totals.protein || 0)}g`}
-              sublabel={`/ ${nutrition.goals.protein}g protein`}
-            />
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3>Latest Health</h3>
-            <Link to="/health" className="link">Log →</Link>
-          </div>
-
-          {latest ? (
-            <div className="mini-stats">
-              <div><span>😴</span><strong>{latest.sleepHours ?? '–'}h</strong><small>Sleep</small></div>
-              <div><span>🚶</span><strong>{latest.steps?.toLocaleString() ?? '–'}</strong><small>Steps</small></div>
-              <div><span>❤️</span><strong>{latest.heartRate ?? '–'}</strong><small>BPM</small></div>
-              <div><span>💧</span><strong>{latest.waterIntake ?? '–'}L</strong><small>Water</small></div>
-            </div>
-          ) : (
-            <p className="muted">No health data yet.</p>
-          )}
-
-          {data.healthAverages?.sleep !== null && data.healthAverages?.sleep !== undefined && (
-            <p className="muted small">
-              7-day avg: {data.healthAverages.sleep}h sleep · {data.healthAverages.steps?.toLocaleString()} steps
-              {data.healthAverages.weightTrend !== 'not enough data' && ` · weight ${data.healthAverages.weightTrend}`}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* ============ DIGITAL TWIN RECOMMENDATIONS ============ */}
+      {/* ============ DIGITAL TWIN SUGGESTIONS ============ */}
       {recommendations.length > 0 && (
-        <div className="card section">
+        <section className="card section twin-card">
           <div className="card-header">
-            <h3>🧠 Your Twin Suggests</h3>
-            <Link to="/chat" className="link">Ask your twin →</Link>
+            <h3><Icon name="sparkle" size={20} className="title-icon" /> Your twin suggests</h3>
+            <Link to="/chat" className="link">Ask your twin</Link>
           </div>
 
-          <div className="recommendations">
+          <ul className="recommendations">
             {recommendations.slice(0, 5).map((rec, i) => (
-              <div key={rec._id || i} className={`recommendation priority-${rec.priority}`}>
-                <span className="rec-icon">{MODULE_ICONS[rec.module] || '🧠'}</span>
+              <li key={rec._id || i} className={`recommendation priority-${rec.priority} mod-${rec.module === 'document' ? 'documents' : rec.module}`}>
+                <span className="rec-icon"><Icon name={MODULE_ICONS[rec.module] || 'twin'} size={18} /></span>
                 <p>{rec.message}</p>
                 {rec._id && (
                   <button
                     type="button"
-                    className="icon-btn small"
+                    className="icon-btn small ghost"
                     onClick={() => dismissRecommendation(rec._id)}
                     title="Dismiss"
                     aria-label="Dismiss suggestion"
                   >
-                    ×
+                    <Icon name="x" size={16} />
                   </button>
                 )}
-              </div>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </section>
       )}
 
       {/* ============ DEADLINES + EXPIRING DOCS ============ */}
       <div className="two-col section">
-        <div className="card">
+        <section className="card mod-academic">
           <div className="card-header">
-            <h3>📅 Upcoming Deadlines</h3>
-            <Link to="/academic" className="link">All goals →</Link>
+            <h3><Icon name="calendar" size={20} className="title-icon" /> Upcoming deadlines</h3>
+            <Link to="/academic" className="link">All goals</Link>
           </div>
 
           {academic.upcomingDeadlines.length === 0 ? (
             <p className="muted">
-              {academic.overdue > 0 ? `No upcoming deadlines, but ${academic.overdue} overdue.` : 'No upcoming deadlines. 🎉'}
+              {academic.overdue > 0 ? `No upcoming deadlines, but ${academic.overdue} goal(s) are overdue.` : 'No upcoming deadlines.'}
             </p>
           ) : (
             <ul className="list">
@@ -276,7 +306,7 @@ function Dashboard() {
                 <li key={goal._id} className="list-item">
                   <div className="list-main">
                     <strong>{goal.title}</strong>
-                    <ProgressBar value={goal.progress} color={goal.atRisk ? 'var(--danger)' : 'var(--primary)'} />
+                    <ProgressBar value={goal.progress} color={goal.atRisk ? 'var(--danger)' : 'var(--academic)'} />
                   </div>
                   <span className={`pill ${goal.daysLeft <= 2 ? 'pill-danger' : goal.atRisk ? 'pill-warning' : ''}`}>
                     {daysText(goal.daysLeft)}
@@ -285,23 +315,23 @@ function Dashboard() {
               ))}
             </ul>
           )}
-        </div>
+        </section>
 
-        <div className="card">
+        <section className="card mod-documents">
           <div className="card-header">
-            <h3>📄 Expiring Documents</h3>
-            <Link to="/documents" className="link">Vault →</Link>
+            <h3><Icon name="file" size={20} className="title-icon" /> Expiring documents</h3>
+            <Link to="/documents" className="link">Open vault</Link>
           </div>
 
           {(data.expiringDocuments || []).length === 0 ? (
-            <p className="muted">Nothing expires in the next 30 days. ✅</p>
+            <p className="muted">Nothing expires in the next 30 days.</p>
           ) : (
             <ul className="list">
               {data.expiringDocuments.map((doc) => (
                 <li key={doc._id} className="list-item">
                   <div className="list-main">
                     <strong>{doc.title}</strong>
-                    <small className="muted">{doc.category}</small>
+                    <small className="muted cap">{doc.category === 'id' ? 'ID' : doc.category}</small>
                   </div>
                   <span className={`pill ${doc.daysLeft <= 7 ? 'pill-danger' : 'pill-warning'}`}>
                     {daysText(doc.daysLeft)}
@@ -310,33 +340,37 @@ function Dashboard() {
               ))}
             </ul>
           )}
-        </div>
+        </section>
       </div>
 
       {/* ============ COUNTS ============ */}
       <div className="stats-grid section">
-        <Link to="/academic" className="stat-card">
-          <h3>Academic Goals</h3>
-          <p className="stat-number" style={{ color: 'var(--primary)' }}>{data.goals}</p>
-          <small className="muted">{academic.completed ?? 0} completed · {academic.avgProgress ?? 0}% avg</small>
+        <Link to="/academic" className="stat-card mod-academic">
+          <span className="stat-icon"><Icon name="academic" size={18} /></span>
+          <h3>Academic goals</h3>
+          <p className="stat-number">{data.goals}</p>
+          <small className="muted">{academic.completed ?? 0} completed, {academic.avgProgress ?? 0}% average progress</small>
         </Link>
 
-        <Link to="/health" className="stat-card">
-          <h3>Health Logs</h3>
-          <p className="stat-number" style={{ color: 'var(--success)' }}>{data.healthLogs}</p>
-          <small className="muted">all time</small>
+        <Link to="/health" className="stat-card mod-health">
+          <span className="stat-icon"><Icon name="health" size={18} /></span>
+          <h3>Health logs</h3>
+          <p className="stat-number">{data.healthLogs}</p>
+          <small className="muted">All time</small>
         </Link>
 
-        <Link to="/nutrition" className="stat-card">
-          <h3>Meals Logged</h3>
-          <p className="stat-number" style={{ color: 'var(--warning)' }}>{data.meals}</p>
-          <small className="muted">all time</small>
+        <Link to="/nutrition" className="stat-card mod-nutrition">
+          <span className="stat-icon"><Icon name="nutrition" size={18} /></span>
+          <h3>Meals logged</h3>
+          <p className="stat-number">{data.meals}</p>
+          <small className="muted">All time</small>
         </Link>
 
-        <Link to="/documents" className="stat-card">
+        <Link to="/documents" className="stat-card mod-documents">
+          <span className="stat-icon"><Icon name="documents" size={18} /></span>
           <h3>Documents</h3>
-          <p className="stat-number" style={{ color: 'var(--purple)' }}>{data.documents}</p>
-          <small className="muted">in your vault</small>
+          <p className="stat-number">{data.documents}</p>
+          <small className="muted">In your vault</small>
         </Link>
       </div>
     </div>

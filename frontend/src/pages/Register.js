@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import AuthVisual from '../components/AuthVisual';
+import Icon from '../components/Icons';
 
 function Register() {
   const navigate = useNavigate();
@@ -73,13 +75,15 @@ function Register() {
 
   return (
     <div className="auth-page">
+      <AuthVisual />
+
+      <main className="auth-panel">
       <div className="auth-card">
-        <div className="auth-logo">🧠</div>
 
         <h2>Create your account</h2>
 
         <p className="auth-subtitle">
-          Start your Synapse journey
+          It takes less than a minute.
         </p>
 
         {error && (
@@ -131,7 +135,7 @@ function Register() {
               onClick={() => setShowPassword((s) => !s)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {showPassword ? '🙈' : '👁️'}
+              <Icon name={showPassword ? 'eyeOff' : 'eye'} size={18} />
             </button>
           </div>
 
@@ -147,7 +151,7 @@ function Register() {
             type="submit"
             disabled={loading}
           >
-            {loading ? 'Creating account...' : 'Create Account'}
+            {loading ? 'Creating account…' : 'Create account'}
           </button>
         </form>
 
@@ -156,6 +160,7 @@ function Register() {
           <Link to="/login">Sign in</Link>
         </p>
       </div>
+      </main>
     </div>
   );
 }

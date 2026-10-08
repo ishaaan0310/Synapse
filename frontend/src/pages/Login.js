@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import AuthVisual from '../components/AuthVisual';
+import Icon from '../components/Icons';
 
 function Login() {
   const navigate = useNavigate();
@@ -49,8 +51,10 @@ function Login() {
 
   return (
     <div className="auth-page">
+      <AuthVisual />
+
+      <main className="auth-panel">
       <div className="auth-card">
-        <div className="auth-logo">🧠</div>
 
         <h2>Welcome back</h2>
         <p className="auth-subtitle">
@@ -100,7 +104,7 @@ function Login() {
               onClick={() => setShowPassword((s) => !s)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {showPassword ? '🙈' : '👁️'}
+              <Icon name={showPassword ? 'eyeOff' : 'eye'} size={18} />
             </button>
           </div>
 
@@ -109,7 +113,7 @@ function Login() {
             type="submit"
             disabled={loading}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
 
@@ -118,6 +122,7 @@ function Login() {
           <Link to="/register">Create one</Link>
         </p>
       </div>
+      </main>
     </div>
   );
 }

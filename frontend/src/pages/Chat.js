@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import api, { getErrorMessage } from '../utils/api';
 import { useToast } from '../components/Toast';
+import { Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 const BASIC_SUGGESTIONS = [
   'How am I doing?',
@@ -22,19 +24,19 @@ const AGENT_SUGGESTIONS = [
 ];
 
 const TOOL_ICONS = {
-  log_meal: '🍽️',
-  log_health_metric: '❤️',
-  create_goal: '🎯',
-  add_milestones: '🧩',
-  set_milestone_status: '☑️',
-  update_goal: '✏️',
-  set_nutrition_goals: '🍎'
+  log_meal: { icon: 'nutrition', module: 'nutrition' },
+  log_health_metric: { icon: 'health', module: 'health' },
+  create_goal: { icon: 'target', module: 'academic' },
+  add_milestones: { icon: 'list', module: 'academic' },
+  set_milestone_status: { icon: 'checkCircle', module: 'academic' },
+  update_goal: { icon: 'edit', module: 'academic' },
+  set_nutrition_goals: { icon: 'target', module: 'nutrition' }
 };
 
 const STATUS_LABELS = {
-  confirmed: '✅ Done',
+  confirmed: 'Saved',
   cancelled: 'Cancelled',
-  failed: '⚠️ Failed',
+  failed: 'Failed',
   expired: 'Expired',
   executing: 'Applying…'
 };
@@ -56,12 +58,16 @@ function FormattedText({ text }) {
 // A change the AI wants to make, waiting for the user's OK
 function ActionCard({ action, busy, onConfirm, onCancel }) {
   const pending = action.status === 'pending';
+  const tool = TOOL_ICONS[action.tool] || { icon: 'bolt', module: 'brand' };
 
   return (
-    <div className={`action-card status-${action.status}`}>
+    <div className={`action-card status-${action.status} mod-${tool.module}`}>
       <div className="action-header">
-        <span className="action-icon">{TOOL_ICONS[action.tool] || '⚡'}</span>
-        <strong>{action.summary}</strong>
+        <span className="action-icon"><Icon name={tool.icon} size={18} /></span>
+        <div>
+          <small className="action-kicker">{pending ? 'Needs your OK' : 'Proposed change'}</small>
+          <strong>{action.summary}</strong>
+        </div>
       </div>
 
       {action.details?.length > 0 && (
@@ -73,14 +79,17 @@ function ActionCard({ action, busy, onConfirm, onCancel }) {
       {pending ? (
         <div className="action-buttons">
           <button type="button" className="btn small" disabled={busy} onClick={() => onConfirm(action)}>
-            {busy ? 'Saving…' : '✓ Confirm'}
+            <Icon name="check" size={16} />{busy ? 'Saving…' : 'Confirm'}
           </button>
           <button type="button" className="btn btn-secondary small" disabled={busy} onClick={() => onCancel(action)}>
             Cancel
           </button>
         </div>
       ) : (
-        <div className="action-status">{STATUS_LABELS[action.status] || action.status}</div>
+        <div className="action-status">
+          <Icon name={action.status === 'confirmed' ? 'checkCircle' : action.status === 'failed' ? 'alert' : 'x'} size={16} />
+          {STATUS_LABELS[action.status] || action.status}
+        </div>
       )}
     </div>
   );
@@ -232,17 +241,18 @@ function Chat() {
     <div className="page chat-page">
       <div className="page-header">
         <div>
-          <h2>🤖 AI Twin</h2>
+          <h2><span className="page-icon"><Icon name="twin" size={22} /></span>AI Twin</h2>
           <span
-            className={`pill ${agent.enabled ? 'pill-success' : ''}`}
+            className={`agent-badge ${agent.enabled ? 'on' : ''}`}
             title={agent.enabled ? `Powered by ${agent.model}` : 'Add GEMINI_API_KEY to backend/.env to enable the AI agent'}
           >
-            {agent.enabled ? `✨ AI agent · ${agent.model}` : 'Basic mode'}
+            <span className="agent-dot" />
+            {agent.enabled ? `Agent on, ${agent.model}` : 'Basic mode'}
           </span>
         </div>
         {messages.length > 0 && (
           <button type="button" className="btn btn-secondary small" onClick={clearChat}>
-            🧹 Clear chat
+            <Icon name="eraser" size={16} /> Clear chat
           </button>
         )}
       </div>
@@ -250,11 +260,11 @@ function Chat() {
       <div className="card chat-card">
         <div className="chat-window">
           {loading ? (
-            <div className="loading"><div className="spinner" />Loading your conversation...</div>
+            <div className="chat-skeleton"><Skeleton lines={2} /><Skeleton lines={3} /></div>
           ) : messages.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">🧠</div>
-              <h3>Your Digital Twin is ready</h3>
+              <span className="empty-orb"><Icon name="twin" size={30} /></span>
+              <h3>Ask your twin anything</h3>
               <p className="muted">
                 {agent.enabled
                   ? 'Ask me anything about your health, food, studies or documents. I can also log meals, create study plans and update goals for you. You confirm every change.'
@@ -264,7 +274,7 @@ function Chat() {
           ) : (
             messages.map((message) => (
               <div key={message._id} className={`message-row ${message.role}`}>
-                {message.role === 'assistant' && <div className="bot-avatar">🧠</div>}
+                {message.role === 'assistant' && <div className="bot-avatar"><Icon name="twin" size={16} strokeWidth={2} /></div>}
                 <div className={`bubble ${message.role} ${message.pending ? 'pending' : ''}`}>
                   <div className="bubble-text">
                     <FormattedText text={message.content} />
@@ -285,7 +295,7 @@ function Chat() {
                   )}
 
                   <div className="bubble-time">
-                    {message.source === 'agent' && message.role === 'assistant' && <span title="AI agent">✨ </span>}
+                    {message.source === 'agent' && message.role === 'assistant' && <span className="agent-mark" title="Answered by the AI agent"><Icon name="sparkle" size={12} /></span>}
                     {formatTime(message.timestamp)}
                   </div>
                 </div>
@@ -295,9 +305,9 @@ function Chat() {
 
           {sending && (
             <div className="message-row assistant">
-              <div className="bot-avatar">🧠</div>
+              <div className="bot-avatar"><Icon name="twin" size={16} strokeWidth={2} /></div>
               <div className="bubble assistant typing" aria-label="Twin is thinking">
-                <span /><span /><span />
+                <span /><i /><span /><i /><span />
               </div>
             </div>
           )}
@@ -333,7 +343,7 @@ function Chat() {
           />
 
           <button type="submit" className="btn" disabled={sending || !input.trim()}>
-            {sending ? '…' : 'Send'}
+            <Icon name="send" size={18} /><span className="send-label">{sending ? 'Sending' : 'Send'}</span>
           </button>
         </form>
       </div>

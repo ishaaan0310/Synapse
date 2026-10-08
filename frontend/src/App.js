@@ -48,10 +48,9 @@ function GuestRoute({ children }) {
 function NotFound() {
   return (
     <div className="page empty-state">
-      <div className="empty-icon">🧭</div>
       <h2>Page not found</h2>
-      <p>The page you're looking for doesn't exist.</p>
-      <a className="btn" href="/">Back to dashboard</a>
+      <p>This page doesn't exist. Check the address or head back to your dashboard.</p>
+      <a className="btn" href="/">Go to dashboard</a>
     </div>
   );
 }
@@ -72,10 +71,10 @@ function App() {
                   path="/*"
                   element={
                     <ProtectedRoute>
-                      <>
+                      <div className="shell">
                         <Navbar />
 
-                        <main>
+                        <main className="main" id="main">
                           <Routes>
                             <Route path="/" element={<Dashboard />} />
                             <Route path="/health" element={<Health />} />
@@ -87,7 +86,7 @@ function App() {
                             <Route path="*" element={<NotFound />} />
                           </Routes>
                         </main>
-                      </>
+                      </div>
                     </ProtectedRoute>
                   }
                 />

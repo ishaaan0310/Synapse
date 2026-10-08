@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api, { getErrorMessage, toDateInput } from '../utils/api';
 import { useToast } from '../components/Toast';
-import { ProgressBar } from '../components/Charts';
+import { ProgressBar, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 const EMPTY_FORM = {
   title: '',
@@ -12,7 +13,7 @@ const EMPTY_FORM = {
   milestones: ''
 };
 
-const CATEGORY_ICONS = { exam: '📝', project: '🛠️', assignment: '📄', course: '🎓' };
+const CATEGORY_ICONS = { exam: 'edit', project: 'bolt', assignment: 'file', course: 'academic' };
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const STATUS_LABELS = {
   'not-started': 'Not started',
@@ -79,12 +80,12 @@ function GoalCard({ goal, onChanged, onDeleted }) {
     if (Number(progress) === goal.progress) return;
     run(
       () => api.patch(`/academic/${goal._id}/progress`, { progress: Number(progress) }),
-      Number(progress) === 100 ? '🎉 Goal completed!' : null
+      Number(progress) === 100 ? 'Goal completed' : null
     );
   };
 
   const markComplete = () =>
-    run(() => api.patch(`/academic/${goal._id}/progress`, { progress: 100 }), '🎉 Goal completed!');
+    run(() => api.patch(`/academic/${goal._id}/progress`, { progress: 100 }), 'Goal completed');
 
   const toggleMilestone = (milestone) =>
     run(() => api.patch(`/academic/${goal._id}/milestones/${milestone._id}`, { completed: !milestone.completed }));
@@ -172,7 +173,7 @@ function GoalCard({ goal, onChanged, onDeleted }) {
     <div className={`card goal-card status-${goal.status} ${goal.atRisk ? 'at-risk' : ''}`}>
       <div className="goal-top">
         <div className="goal-title">
-          <span className="goal-icon">{CATEGORY_ICONS[goal.category]}</span>
+          <span className="goal-icon"><Icon name={CATEGORY_ICONS[goal.category]} size={20} /></span>
           <div>
             <h3>{goal.title}</h3>
             {goal.description && <p className="muted">{goal.description}</p>}
@@ -189,7 +190,7 @@ function GoalCard({ goal, onChanged, onDeleted }) {
         <span>{goal.category}</span>
         <span>· Due {new Date(goal.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
         <span>· {STATUS_LABELS[goal.status]}</span>
-        {goal.atRisk && <span className="text-danger">· ⚠️ At risk</span>}
+        {goal.atRisk && <span className="text-danger at-risk-label"><Icon name="alert" size={14} />At risk</span>}
       </div>
 
       <div className="goal-progress">
@@ -253,11 +254,11 @@ function GoalCard({ goal, onChanged, onDeleted }) {
         <div className="button-row">
           {goal.status !== 'completed' && !hasMilestones && (
             <button type="button" className="btn btn-secondary small" onClick={markComplete} disabled={busy}>
-              ✓ Complete
+              <Icon name="check" size={16} /> Mark complete
             </button>
           )}
-          <button type="button" className="icon-btn small" onClick={startEditing} title="Edit" aria-label="Edit goal">✏️</button>
-          <button type="button" className="icon-btn small danger" onClick={remove} title="Delete" aria-label="Delete goal">🗑️</button>
+          <button type="button" className="icon-btn small" onClick={startEditing} title="Edit" aria-label="Edit goal"><Icon name="edit" size={16} /></button>
+          <button type="button" className="icon-btn small danger" onClick={remove} title="Delete" aria-label="Delete goal"><Icon name="trash" size={16} /></button>
         </div>
       </div>
     </div>
@@ -365,11 +366,11 @@ function Academic() {
   const atRisk = goals.filter((g) => g.atRisk).length;
 
   return (
-    <div className="page">
+    <div className="page mod-academic">
       <div className="page-header">
-        <h2>📚 Academic Goals</h2>
+        <h2><span className="page-icon"><Icon name="academic" size={22} /></span>Academic goals</h2>
         <button type="button" className="btn" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Close' : '+ New Goal'}
+          {showForm ? 'Close' : <><Icon name="plus" size={18} /> New goal</>}
         </button>
       </div>
 
@@ -386,7 +387,7 @@ function Academic() {
 
       {(showForm || (!loading && goals.length === 0)) && (
         <div className="card section">
-          <h3>Create New Goal</h3>
+          <h3>Create a goal</h3>
 
           <form onSubmit={handleSubmit}>
             <div className="form-grid">
@@ -429,7 +430,7 @@ function Academic() {
             </div>
 
             <button type="submit" className="btn" disabled={saving}>
-              {saving ? 'Creating...' : 'Create Goal'}
+              {saving ? 'Creating…' : 'Create goal'}
             </button>
           </form>
         </div>
@@ -451,7 +452,7 @@ function Academic() {
             ))}
           </div>
 
-          <input type="search" placeholder="🔍 Search goals" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input type="search" placeholder="Search goals" value={search} onChange={(e) => setSearch(e.target.value)} />
 
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Category">
             <option value="all">All categories</option>
@@ -471,10 +472,10 @@ function Academic() {
 
       <div className="goal-list">
         {loading ? (
-          <div className="loading"><div className="spinner" />Loading academic goals...</div>
+          <><div className="card"><Skeleton lines={3} /></div><div className="card"><Skeleton lines={3} /></div></>
         ) : goals.length === 0 ? null : visibleGoals.length === 0 ? (
           <div className="empty-state small">
-            <div className="empty-icon">🔎</div>
+            <Icon name="search" size={32} className="empty-icon" />
             <p>No goals match these filters.</p>
           </div>
         ) : (

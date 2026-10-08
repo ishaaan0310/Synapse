@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api, { getErrorMessage, toDateInput } from '../utils/api';
 import { useToast } from '../components/Toast';
-import { LineChart } from '../components/Charts';
+import { LineChart, Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 const EMPTY_FORM = {
   date: '',
@@ -16,11 +17,11 @@ const EMPTY_FORM = {
 };
 
 const METRICS = {
-  sleepHours: { label: 'Sleep', unit: 'h', color: 'var(--primary)', target: 7, targetLabel: 'Goal 7h' },
-  steps: { label: 'Steps', unit: 'steps', color: 'var(--success)', target: 8000, targetLabel: 'Goal 8k' },
-  weight: { label: 'Weight', unit: 'kg', color: 'var(--purple)' },
-  heartRate: { label: 'Heart Rate', unit: 'BPM', color: 'var(--danger)' },
-  waterIntake: { label: 'Water', unit: 'L', color: 'var(--info)', target: 2.5, targetLabel: 'Goal 2.5L' }
+  sleepHours: { label: 'Sleep', unit: 'h', color: 'var(--sleep)', target: 7, targetLabel: 'Goal 7h' },
+  steps: { label: 'Steps', unit: 'steps', color: 'var(--health)', target: 8000, targetLabel: 'Goal 8k' },
+  weight: { label: 'Weight', unit: 'kg', color: 'var(--brand)' },
+  heartRate: { label: 'Heart rate', unit: 'bpm', color: 'var(--danger)' },
+  waterIntake: { label: 'Water', unit: 'L', color: 'var(--water)', target: 2.5, targetLabel: 'Goal 2.5L' }
 };
 
 const RANGES = [7, 30, 90];
@@ -186,16 +187,16 @@ function Health() {
   const t30 = trends?.last30Days;
 
   return (
-    <div className="page">
+    <div className="page mod-health">
       <div className="page-header">
-        <h2>❤️ Health & Fitness</h2>
+        <h2><span className="page-icon"><Icon name="health" size={22} /></span>Health</h2>
 
         <div className="button-row">
           <button className="btn btn-secondary" disabled={!!syncing} onClick={() => syncWearable('fitbit')}>
-            {syncing === 'fitbit' ? 'Syncing…' : '⌚ Sync Fitbit'}
+            <Icon name="watch" size={18} />{syncing === 'fitbit' ? 'Syncing…' : 'Sync Fitbit'}
           </button>
           <button className="btn btn-secondary" disabled={!!syncing} onClick={() => syncWearable('healthkit')}>
-            {syncing === 'healthkit' ? 'Syncing…' : '🍏 Sync HealthKit'}
+            <Icon name="sync" size={18} />{syncing === 'healthkit' ? 'Syncing…' : 'Sync HealthKit'}
           </button>
         </div>
       </div>
@@ -203,30 +204,37 @@ function Health() {
       {alerts.length > 0 && (
         <div className="alerts">
           {alerts.map((alert, i) => (
-            <div key={i} className={`alert alert-${alert.type}`}>{alert.text}</div>
+            <div key={i} className={`alert alert-${alert.type}`}>
+              <Icon name={alert.type === 'info' ? 'info' : 'alert'} size={18} />
+              <span>{alert.text.replace(/^[^\p{L}\p{N}]+/u, '')}</span>
+            </div>
           ))}
         </div>
       )}
 
       {/* ============ TRENDS ============ */}
       <div className="stats-grid">
-        <div className="stat-card">
-          <h3>😴 Avg Sleep</h3>
+        <div className="stat-card" style={{ '--module': 'var(--sleep)' }}>
+          <span className="stat-icon"><Icon name="sleep" size={18} /></span>
+          <h3>Average sleep</h3>
           <p className="stat-number">{t7 ? `${t7.avgSleep}h` : '–'}</p>
           <small className="muted">7 days{t30 ? ` · 30d: ${t30.avgSleep}h` : ''}</small>
         </div>
         <div className="stat-card">
-          <h3>🚶 Avg Steps</h3>
+          <span className="stat-icon"><Icon name="steps" size={18} /></span>
+          <h3>Average steps</h3>
           <p className="stat-number">{t7 ? t7.avgSteps.toLocaleString() : '–'}</p>
           <small className="muted">7 days{t30 ? ` · 30d: ${t30.avgSteps.toLocaleString()}` : ''}</small>
         </div>
-        <div className="stat-card">
-          <h3>💧 Avg Water</h3>
+        <div className="stat-card" style={{ '--module': 'var(--water)' }}>
+          <span className="stat-icon"><Icon name="water" size={18} /></span>
+          <h3>Average water</h3>
           <p className="stat-number">{t7 ? `${t7.avgWater}L` : '–'}</p>
           <small className="muted">7 days{t30 ? ` · 30d: ${t30.avgWater}L` : ''}</small>
         </div>
-        <div className="stat-card">
-          <h3>⚖️ BMI</h3>
+        <div className="stat-card" style={{ '--module': 'var(--brand)' }}>
+          <span className="stat-icon"><Icon name="weight" size={18} /></span>
+          <h3>BMI</h3>
           <p className="stat-number">{latestBmi ? latestBmi.value : '–'}</p>
           <small className="muted">{latestBmi ? latestBmi.category : 'log weight + height'}</small>
         </div>
@@ -263,7 +271,7 @@ function Health() {
         </div>
 
         {loading ? (
-          <div className="loading"><div className="spinner" /></div>
+          <Skeleton height={240} />
         ) : (
           <LineChart
             data={chartData}
@@ -277,7 +285,7 @@ function Health() {
 
       {/* ============ LOG FORM ============ */}
       <div className="card section">
-        <h3>Log Health Metric</h3>
+        <h3>Log a health entry</h3>
         <p className="muted small">Fill in whatever you have. Every field is optional.</p>
 
         {error && <div className="error-message">{error}</div>}
@@ -352,21 +360,21 @@ function Health() {
           )}
 
           <button type="submit" className="btn" disabled={saving}>
-            {saving ? 'Saving...' : 'Log Metric'}
+            {saving ? 'Saving…' : 'Save entry'}
           </button>
         </form>
       </div>
 
       {/* ============ HISTORY ============ */}
       <div className="card section">
-        <h3>Recent Health Logs</h3>
+        <h3>Recent logs</h3>
 
         {loading ? (
-          <p className="muted">Loading health logs...</p>
+          <Skeleton lines={4} />
         ) : logs.length === 0 ? (
           <div className="empty-state small">
-            <div className="empty-icon">📈</div>
-            <p>No health logs yet. Add your first metric above, or try a wearable sync.</p>
+            <Icon name="chart" size={32} className="empty-icon" />
+            <p>No health logs yet. Add your first metric above, or sync a wearable.</p>
           </div>
         ) : (
           <>
@@ -376,22 +384,22 @@ function Health() {
                   <strong>{formatDate(log.date)}</strong>
                   <div className="entry-actions">
                     {log.source && log.source !== 'manual' && (
-                      <span className="pill">{log.source === 'fitbit' ? '⌚ Fitbit' : '🍏 HealthKit'}</span>
+                      <span className="pill"><Icon name="watch" size={14} />{log.source === 'fitbit' ? 'Fitbit' : 'HealthKit'}</span>
                     )}
                     <button type="button" className="icon-btn small danger" onClick={() => deleteLog(log._id)}
-                      title="Delete" aria-label="Delete log">🗑️</button>
+                      title="Delete" aria-label="Delete log"><Icon name="trash" size={16} /></button>
                   </div>
                 </div>
 
                 <div className="entry-grid">
-                  <div>😴 <strong>Sleep</strong><br />{log.sleepHours ?? '–'} h{log.sleepQuality ? ` (${log.sleepQuality})` : ''}</div>
-                  <div>🚶 <strong>Steps</strong><br />{log.steps ? log.steps.toLocaleString() : '–'}</div>
-                  <div>💧 <strong>Water</strong><br />{log.waterIntake ?? '–'} L</div>
-                  <div>❤️ <strong>Heart Rate</strong><br />{log.heartRate ?? '–'} BPM</div>
-                  <div>⚖️ <strong>Weight</strong><br />{log.weight ?? '–'} kg</div>
+                  <div className="metric"><span><Icon name="sleep" size={15} />Sleep</span><strong className="num">{log.sleepHours ?? '–'} h</strong>{log.sleepQuality && <small className="muted cap">{log.sleepQuality}</small>}</div>
+                  <div className="metric"><span><Icon name="steps" size={15} />Steps</span><strong className="num">{log.steps ? log.steps.toLocaleString() : '–'}</strong></div>
+                  <div className="metric"><span><Icon name="water" size={15} />Water</span><strong className="num">{log.waterIntake ?? '–'} L</strong></div>
+                  <div className="metric"><span><Icon name="heart" size={15} />Heart rate</span><strong className="num">{log.heartRate ?? '–'} bpm</strong></div>
+                  <div className="metric"><span><Icon name="weight" size={15} />Weight</span><strong className="num">{log.weight ?? '–'} kg</strong></div>
                 </div>
 
-                {log.notes && <p className="entry-notes">📝 {log.notes}</p>}
+                {log.notes && <p className="entry-notes"><Icon name="note" size={15} />{log.notes}</p>}
               </div>
             ))}
 

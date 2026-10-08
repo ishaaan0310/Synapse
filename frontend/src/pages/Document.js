@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api, { getErrorMessage, openDocumentFile, toDateInput } from '../utils/api';
 import { useToast } from '../components/Toast';
+import { Skeleton } from '../components/Charts';
+import Icon from '../components/Icons';
 
 const EMPTY_FORM = {
   title: '',
@@ -10,12 +12,12 @@ const EMPTY_FORM = {
 };
 
 const CATEGORIES = [
-  { value: 'academic', label: 'Academic', icon: '🎓' },
-  { value: 'certificate', label: 'Certificate', icon: '🏅' },
-  { value: 'id', label: 'ID', icon: '🪪' },
-  { value: 'medical', label: 'Medical', icon: '🩺' },
-  { value: 'insurance', label: 'Insurance', icon: '🛡️' },
-  { value: 'other', label: 'Other', icon: '📦' }
+  { value: 'academic', label: 'Academic', icon: 'academic' },
+  { value: 'certificate', label: 'Certificate', icon: 'target' },
+  { value: 'id', label: 'ID', icon: 'user' },
+  { value: 'medical', label: 'Medical', icon: 'health' },
+  { value: 'insurance', label: 'Insurance', icon: 'shield' },
+  { value: 'other', label: 'Other', icon: 'documents' }
 ];
 
 const ACCEPT = '.pdf,.doc,.docx,.jpg,.jpeg,.png';
@@ -23,11 +25,11 @@ const MAX_SIZE = 10 * 1024 * 1024;
 
 const getFileIcon = (type) => {
   switch (type) {
-    case 'pdf': return '📕';
-    case 'docx': return '📘';
+    case 'pdf': return 'file';
+    case 'docx': return 'note';
     case 'jpg':
-    case 'png': return '🖼️';
-    default: return '📄';
+    case 'png': return 'image';
+    default: return 'file';
   }
 };
 
@@ -138,7 +140,10 @@ function DocumentItem({ doc, onUpdated, onDeleted }) {
 
   return (
     <div className="entry doc-item">
-      <div className="doc-icon">{getFileIcon(doc.fileType)}</div>
+      <div className={`doc-icon type-${doc.fileType}`}>
+        <Icon name={getFileIcon(doc.fileType)} size={22} />
+        <span>{doc.fileType === 'other' ? 'file' : doc.fileType}</span>
+      </div>
 
       <div className="doc-body">
         <div className="doc-title-row">
@@ -160,9 +165,9 @@ function DocumentItem({ doc, onUpdated, onDeleted }) {
 
       <div className="doc-actions">
         <button type="button" className="btn small" onClick={() => open(false)}>Open</button>
-        <button type="button" className="icon-btn small" onClick={() => open(true)} title="Download" aria-label="Download">⬇️</button>
-        <button type="button" className="icon-btn small" onClick={startEdit} title="Edit" aria-label="Edit">✏️</button>
-        <button type="button" className="icon-btn small danger" onClick={remove} title="Delete" aria-label="Delete">🗑️</button>
+        <button type="button" className="icon-btn small" onClick={() => open(true)} title="Download" aria-label="Download"><Icon name="download" size={16} /></button>
+        <button type="button" className="icon-btn small" onClick={startEdit} title="Edit" aria-label="Edit"><Icon name="edit" size={16} /></button>
+        <button type="button" className="icon-btn small danger" onClick={remove} title="Delete" aria-label="Delete"><Icon name="trash" size={16} /></button>
       </div>
     </div>
   );
@@ -317,11 +322,15 @@ function Documents() {
   const attention = [...expiry.expired, ...expiry.expiringSoon];
 
   return (
-    <div className="page">
-      <h2>📁 Document Vault</h2>
+    <div className="page mod-documents">
+      <div className="page-header">
+        <h2><span className="page-icon"><Icon name="documents" size={22} /></span>Document vault</h2>
+      </div>
 
       {attention.length > 0 && (
         <div className="alert alert-warning">
+          <Icon name="alert" size={18} />
+          <span>
           <strong>Needs attention:</strong>{' '}
           {attention.slice(0, 3).map((d, i) => (
             <span key={d._id}>
@@ -330,12 +339,13 @@ function Documents() {
             </span>
           ))}
           {attention.length > 3 && ` and ${attention.length - 3} more`}
+          </span>
         </div>
       )}
 
       {/* ============ UPLOAD ============ */}
       <div className="card">
-        <h3>Upload Document</h3>
+        <h3>Upload a document</h3>
 
         {error && <div className="error-message">{error}</div>}
 
@@ -358,9 +368,9 @@ function Documents() {
               onChange={(e) => pickFile(e.target.files[0])}
             />
             {file ? (
-              <p>📎 <strong>{file.name}</strong> ({formatSize(file.size)}) <span className="muted">· click to change</span></p>
+              <p><Icon name="checkCircle" size={22} /><span><strong>{file.name}</strong> <span className="muted">({formatSize(file.size)}). Click to choose a different file.</span></span></p>
             ) : (
-              <p>⬆️ <strong>Drag a file here</strong> or click to browse<br /><small className="muted">PDF, Word, JPG or PNG · max 10 MB</small></p>
+              <p><Icon name="upload" size={22} /><span><strong>Drop a file here or click to browse</strong><br /><small className="muted">PDF, Word, JPG or PNG up to 10 MB</small></span></p>
             )}
           </div>
 
@@ -371,7 +381,7 @@ function Documents() {
 
             <label>Category
               <select name="category" value={form.category} onChange={handleChange}>
-                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}
+                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </label>
 
@@ -385,7 +395,7 @@ function Documents() {
           </div>
 
           <button type="submit" className="btn" disabled={uploading || !file}>
-            {uploading ? 'Uploading...' : 'Upload Document'}
+            {uploading ? 'Uploading…' : 'Upload document'}
           </button>
         </form>
       </div>
@@ -393,13 +403,13 @@ function Documents() {
       {/* ============ LIST ============ */}
       <div className="card section">
         <div className="card-header">
-          <h3>Your Documents</h3>
+          <h3>Your documents</h3>
           <span className="muted">{documents.length} item(s)</span>
         </div>
 
         <input
           type="search"
-          placeholder="🔍 Search by title, file name or tag..."
+          placeholder="Search by title, file name or tag"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -411,16 +421,16 @@ function Documents() {
           {CATEGORIES.map((c) => (
             <button key={c.value} type="button" className={`chip ${category === c.value ? 'active' : ''}`}
               onClick={() => setCategory(c.value)}>
-              {c.icon} {c.label}
+              <Icon name={c.icon} size={15} /> {c.label}
             </button>
           ))}
         </div>
 
         {loading ? (
-          <p className="muted">Loading documents...</p>
+          <Skeleton lines={4} />
         ) : documents.length === 0 ? (
           <div className="empty-state small">
-            <div className="empty-icon">🗂️</div>
+            <Icon name="documents" size={32} className="empty-icon" />
             <p>{search || category !== 'all' ? 'No documents match your search.' : 'No documents yet. Upload your first one above.'}</p>
           </div>
         ) : (
