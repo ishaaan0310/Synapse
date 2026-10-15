@@ -1,0 +1,29 @@
+# Render Blueprint for the Synapse API (backend only).
+# In Render: New > Blueprint > pick this repo. You'll be asked for the
+# values marked `sync: false`; they are never stored in the repo.
+services:
+  - type: web
+    name: synapse-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health-check
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGO_URI
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash

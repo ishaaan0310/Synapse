@@ -13,6 +13,7 @@ const ChatMessage = require('../models/ChatMessage');
 const DigitalTwinProfile = require('../models/DigitalTwinProfile');
 const AgentAction = require('../models/AgentAction');
 const authMiddleware = require('../middleware/authMiddleware');
+const fileStore = require('../utils/fileStore');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 
@@ -186,12 +187,17 @@ router.delete('/', async (req, res, next) => {
       });
     }
 
-    // Remove uploaded files from disk
-    const docs = await Document.find({ user: req.userId }).select('fileUrl');
-    docs.forEach((doc) => {
-      const filePath = path.join(UPLOAD_DIR, path.basename(doc.fileUrl || ''));
-      fs.promises.unlink(filePath).catch(() => {});
-    });
+    // Remove uploaded files (GridFS, or disk for older uploads)
+    const docs = await Document.find({ user: req.userId }).select('fileUrl fileId');
+    await Promise.all(
+      docs.map((doc) =>
+        doc.fileId
+          ? fileStore.deleteFile(doc.fileId).catch(() => {})
+          : fs.promises
+              .unlink(path.join(UPLOAD_DIR, path.basename(doc.fileUrl || '')))
+              .catch(() => {})
+      )
+    );
 
     await Promise.all([
       HealthMetric.deleteMany({ user: req.userId }),

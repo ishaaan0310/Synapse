@@ -45,8 +45,11 @@ app.use(express.urlencoded({ extended: true }));
 // They are streamed through GET /api/documents/:id/file, which checks
 // that the logged-in user owns the document.
 
-// Make sure the uploads folder exists (multer will not create it)
-require('fs').mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
+// Uploaded files live in MongoDB GridFS (utils/fileStore.js), so nothing
+// depends on the server's disk, which hosts like Render wipe on restart.
+
+// Render and similar hosts sit behind a proxy
+app.set('trust proxy', 1);
 
 // ==========================================
 // ROUTES

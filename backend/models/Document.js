@@ -4,6 +4,7 @@ const documentSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   title: { type: String, required: true },
   fileName: String,
+  fileId: mongoose.Schema.Types.ObjectId, // GridFS file (bucket: uploads)
   fileUrl: { type: String, required: true },
   fileType: { type: String, enum: ['pdf', 'docx', 'jpg', 'png', 'other'] },
   category: { type: String, enum: ['id', 'certificate', 'medical', 'academic', 'insurance', 'other'] },

@@ -6,10 +6,11 @@ const fs = require('fs');
 
 const Document = require('../models/Document');
 const authMiddleware = require('../middleware/authMiddleware');
+const fileStore = require('../utils/fileStore');
 
-// Absolute path so uploads work no matter which folder you start node from
+// Files are stored in MongoDB GridFS (see utils/fileStore.js).
+// UPLOAD_DIR is only read for documents uploaded before that change.
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const CATEGORIES = ['id', 'certificate', 'medical', 'academic', 'insurance', 'other'];
 
@@ -28,21 +29,8 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg'];
 // MULTER STORAGE
 // ==========================================
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOAD_DIR);
-  },
-
-  filename: (req, file, cb) => {
-    const uniqueName =
-      Date.now() +
-      '-' +
-      Math.round(Math.random() * 1e9) +
-      path.extname(file.originalname).toLowerCase();
-
-    cb(null, uniqueName);
-  }
-});
+// Keep the upload in memory; it is streamed into GridFS after validation
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -100,6 +88,8 @@ router.post(
   authMiddleware,
   handleUpload,
   async (req, res) => {
+    let fileId = null;
+
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -109,6 +99,8 @@ router.post(
 
       const category = CATEGORIES.includes(req.body.category) ? req.body.category : 'other';
 
+      fileId = await fileStore.saveFile(req.file, { userId: req.userId });
+
       const document = new Document({
         user: req.userId,
 
@@ -116,8 +108,9 @@ router.post(
 
         fileName: req.file.originalname,
 
-        // Stored for reference; files are served via GET /:id/file
-        fileUrl: `/uploads/${req.file.filename}`,
+        // Files are served via GET /:id/file
+        fileId,
+        fileUrl: `gridfs/${fileId}`,
 
         fileType: getFileType(req.file.mimetype),
 
@@ -140,8 +133,8 @@ router.post(
     } catch (error) {
       console.error('Document upload error:', error);
 
-      // Don't leave an orphaned file on disk if saving failed
-      if (req.file) fs.promises.unlink(req.file.path).catch(() => {});
+      // Don't leave an orphaned file in GridFS if saving failed
+      if (fileId) fileStore.deleteFile(fileId).catch(() => {});
 
       res.status(500).json({
         message: 'Failed to upload document',
@@ -266,20 +259,38 @@ router.get('/:id/file', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ message: 'Document not found' });
     }
 
+    const disposition = req.query.download === '1' ? 'attachment' : 'inline';
+    const safeName = (doc.fileName || doc.title || 'file').replace(/["\r\n]/g, '');
+    const setDisposition = () =>
+      res.setHeader(
+        'Content-Disposition',
+        `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+      );
+
+    if (doc.fileId) {
+      const stored = await fileStore.fileExists(doc.fileId);
+      if (!stored) {
+        return res.status(404).json({ message: 'File is missing on the server' });
+      }
+
+      setDisposition();
+      res.setHeader('Content-Type', stored.contentType || 'application/octet-stream');
+      res.setHeader('Content-Length', stored.length);
+
+      return fileStore
+        .openDownloadStream(doc.fileId)
+        .on('error', next)
+        .pipe(res);
+    }
+
+    // Older documents saved on the server's disk
     const filePath = filePathFor(doc);
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ message: 'File is missing on the server' });
     }
 
-    const disposition = req.query.download === '1' ? 'attachment' : 'inline';
-    const safeName = (doc.fileName || path.basename(filePath)).replace(/["\r\n]/g, '');
-
-    res.setHeader(
-      'Content-Disposition',
-      `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
-    );
-
+    setDisposition();
     res.sendFile(filePath);
   } catch (error) {
     next(error);
@@ -341,7 +352,11 @@ router.delete('/:id', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ message: 'Document not found' });
     }
 
-    await fs.promises.unlink(filePathFor(doc)).catch(() => {});
+    if (doc.fileId) {
+      await fileStore.deleteFile(doc.fileId).catch(() => {});
+    } else {
+      await fs.promises.unlink(filePathFor(doc)).catch(() => {});
+    }
 
     res.json({ message: 'Document deleted' });
   } catch (error) {
