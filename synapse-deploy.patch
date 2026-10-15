@@ -1,0 +1,385 @@
+From 7c35e8f541584682c5721ed7e3dba6367266273d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 15 Oct 2026 08:41:34 +0000
+Subject: [PATCH] Prepare Synapse for deployment on Render + Vercel
+
+- Store uploaded documents in MongoDB GridFS instead of the local disk,
+  since Render's filesystem is wiped on every restart and redeploy.
+  Older disk-based uploads are still served and deleted correctly.
+- Add render.yaml blueprint for the backend (free plan, Singapore,
+  health check on /api/health-check, auto-generated JWT_SECRET).
+- Add frontend/vercel.json: SPA rewrites so deep links work on refresh,
+  and CI=false so CRA lint warnings don't fail the Vercel build.
+- Trust the proxy, pin Node >=18, document Atlas/Vercel env values.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WMuEznxDBR7Eet2DgWfTXw
+---
+ backend/.env.example        |  3 ++
+ backend/models/Document.js  |  1 +
+ backend/package.json        |  3 ++
+ backend/routes/documents.js | 75 ++++++++++++++++++++++---------------
+ backend/routes/profile.js   | 18 ++++++---
+ backend/server.js           |  7 +++-
+ backend/utils/fileStore.js  | 53 ++++++++++++++++++++++++++
+ frontend/vercel.json        | 10 +++++
+ render.yaml                 | 29 ++++++++++++++
+ 9 files changed, 161 insertions(+), 38 deletions(-)
+ create mode 100644 backend/utils/fileStore.js
+ create mode 100644 frontend/vercel.json
+ create mode 100644 render.yaml
+
+diff --git a/backend/.env.example b/backend/.env.example
+index 54b4a6a..622e13f 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -1,10 +1,13 @@
+ # Copy this file to .env and fill in your own values
+ PORT=5000
+ MONGO_URI=mongodb://127.0.0.1:27017/synapse
++# Atlas example (used in production on Render):
++# MONGO_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/synapse?retryWrites=true&w=majority
+ JWT_SECRET=replace-with-a-long-random-string
+ # Comma-separated list of frontend URLs allowed to call the API
+ # (any http://localhost port is always allowed during development)
+ CLIENT_URL=http://localhost:3000
++# In production, set it to your Vercel URL, e.g. https://synapse-yourname.vercel.app
+ 
+ # ---- AI agent (optional) ----
+ # Free key: https://aistudio.google.com/apikey
+diff --git a/backend/models/Document.js b/backend/models/Document.js
+index 6d09025..009a66b 100644
+--- a/backend/models/Document.js
++++ b/backend/models/Document.js
+@@ -4,6 +4,7 @@ const documentSchema = new mongoose.Schema({
+   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+   title: { type: String, required: true },
+   fileName: String,
++  fileId: mongoose.Schema.Types.ObjectId, // GridFS file (bucket: uploads)
+   fileUrl: { type: String, required: true },
+   fileType: { type: String, enum: ['pdf', 'docx', 'jpg', 'png', 'other'] },
+   category: { type: String, enum: ['id', 'certificate', 'medical', 'academic', 'insurance', 'other'] },
+diff --git a/backend/package.json b/backend/package.json
+index c3c6e50..2474781 100644
+--- a/backend/package.json
++++ b/backend/package.json
+@@ -3,6 +3,9 @@
+   "version": "1.0.0",
+   "description": "Synapse AI Digital Twin - Backend",
+   "main": "server.js",
++  "engines": {
++    "node": ">=18"
++  },
+   "scripts": {
+     "start": "node server.js",
+     "dev": "nodemon server.js"
+diff --git a/backend/routes/documents.js b/backend/routes/documents.js
+index 17fb1a3..9468b74 100644
+--- a/backend/routes/documents.js
++++ b/backend/routes/documents.js
+@@ -6,10 +6,11 @@ const fs = require('fs');
+ 
+ const Document = require('../models/Document');
+ const authMiddleware = require('../middleware/authMiddleware');
++const fileStore = require('../utils/fileStore');
+ 
+-// Absolute path so uploads work no matter which folder you start node from
++// Files are stored in MongoDB GridFS (see utils/fileStore.js).
++// UPLOAD_DIR is only read for documents uploaded before that change.
+ const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+ 
+ const CATEGORIES = ['id', 'certificate', 'medical', 'academic', 'insurance', 'other'];
+ 
+@@ -28,21 +29,8 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg'];
+ // MULTER STORAGE
+ // ==========================================
+ 
+-const storage = multer.diskStorage({
+-  destination: (req, file, cb) => {
+-    cb(null, UPLOAD_DIR);
+-  },
+-
+-  filename: (req, file, cb) => {
+-    const uniqueName =
+-      Date.now() +
+-      '-' +
+-      Math.round(Math.random() * 1e9) +
+-      path.extname(file.originalname).toLowerCase();
+-
+-    cb(null, uniqueName);
+-  }
+-});
++// Keep the upload in memory; it is streamed into GridFS after validation
++const storage = multer.memoryStorage();
+ 
+ const upload = multer({
+   storage,
+@@ -100,6 +88,8 @@ router.post(
+   authMiddleware,
+   handleUpload,
+   async (req, res) => {
++    let fileId = null;
++
+     try {
+       if (!req.file) {
+         return res.status(400).json({
+@@ -109,6 +99,8 @@ router.post(
+ 
+       const category = CATEGORIES.includes(req.body.category) ? req.body.category : 'other';
+ 
++      fileId = await fileStore.saveFile(req.file, { userId: req.userId });
++
+       const document = new Document({
+         user: req.userId,
+ 
+@@ -116,8 +108,9 @@ router.post(
+ 
+         fileName: req.file.originalname,
+ 
+-        // Stored for reference; files are served via GET /:id/file
+-        fileUrl: `/uploads/${req.file.filename}`,
++        // Files are served via GET /:id/file
++        fileId,
++        fileUrl: `gridfs/${fileId}`,
+ 
+         fileType: getFileType(req.file.mimetype),
+ 
+@@ -140,8 +133,8 @@ router.post(
+     } catch (error) {
+       console.error('Document upload error:', error);
+ 
+-      // Don't leave an orphaned file on disk if saving failed
+-      if (req.file) fs.promises.unlink(req.file.path).catch(() => {});
++      // Don't leave an orphaned file in GridFS if saving failed
++      if (fileId) fileStore.deleteFile(fileId).catch(() => {});
+ 
+       res.status(500).json({
+         message: 'Failed to upload document',
+@@ -266,20 +259,38 @@ router.get('/:id/file', authMiddleware, async (req, res, next) => {
+       return res.status(404).json({ message: 'Document not found' });
+     }
+ 
++    const disposition = req.query.download === '1' ? 'attachment' : 'inline';
++    const safeName = (doc.fileName || doc.title || 'file').replace(/["\r\n]/g, '');
++    const setDisposition = () =>
++      res.setHeader(
++        'Content-Disposition',
++        `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
++      );
++
++    if (doc.fileId) {
++      const stored = await fileStore.fileExists(doc.fileId);
++      if (!stored) {
++        return res.status(404).json({ message: 'File is missing on the server' });
++      }
++
++      setDisposition();
++      res.setHeader('Content-Type', stored.contentType || 'application/octet-stream');
++      res.setHeader('Content-Length', stored.length);
++
++      return fileStore
++        .openDownloadStream(doc.fileId)
++        .on('error', next)
++        .pipe(res);
++    }
++
++    // Older documents saved on the server's disk
+     const filePath = filePathFor(doc);
+ 
+     if (!fs.existsSync(filePath)) {
+       return res.status(404).json({ message: 'File is missing on the server' });
+     }
+ 
+-    const disposition = req.query.download === '1' ? 'attachment' : 'inline';
+-    const safeName = (doc.fileName || path.basename(filePath)).replace(/["\r\n]/g, '');
+-
+-    res.setHeader(
+-      'Content-Disposition',
+-      `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`
+-    );
+-
++    setDisposition();
+     res.sendFile(filePath);
+   } catch (error) {
+     next(error);
+@@ -341,7 +352,11 @@ router.delete('/:id', authMiddleware, async (req, res, next) => {
+       return res.status(404).json({ message: 'Document not found' });
+     }
+ 
+-    await fs.promises.unlink(filePathFor(doc)).catch(() => {});
++    if (doc.fileId) {
++      await fileStore.deleteFile(doc.fileId).catch(() => {});
++    } else {
++      await fs.promises.unlink(filePathFor(doc)).catch(() => {});
++    }
+ 
+     res.json({ message: 'Document deleted' });
+   } catch (error) {
+diff --git a/backend/routes/profile.js b/backend/routes/profile.js
+index 784c447..6ef84e8 100644
+--- a/backend/routes/profile.js
++++ b/backend/routes/profile.js
+@@ -13,6 +13,7 @@ const ChatMessage = require('../models/ChatMessage');
+ const DigitalTwinProfile = require('../models/DigitalTwinProfile');
+ const AgentAction = require('../models/AgentAction');
+ const authMiddleware = require('../middleware/authMiddleware');
++const fileStore = require('../utils/fileStore');
+ 
+ const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+ 
+@@ -186,12 +187,17 @@ router.delete('/', async (req, res, next) => {
+       });
+     }
+ 
+-    // Remove uploaded files from disk
+-    const docs = await Document.find({ user: req.userId }).select('fileUrl');
+-    docs.forEach((doc) => {
+-      const filePath = path.join(UPLOAD_DIR, path.basename(doc.fileUrl || ''));
+-      fs.promises.unlink(filePath).catch(() => {});
+-    });
++    // Remove uploaded files (GridFS, or disk for older uploads)
++    const docs = await Document.find({ user: req.userId }).select('fileUrl fileId');
++    await Promise.all(
++      docs.map((doc) =>
++        doc.fileId
++          ? fileStore.deleteFile(doc.fileId).catch(() => {})
++          : fs.promises
++              .unlink(path.join(UPLOAD_DIR, path.basename(doc.fileUrl || '')))
++              .catch(() => {})
++      )
++    );
+ 
+     await Promise.all([
+       HealthMetric.deleteMany({ user: req.userId }),
+diff --git a/backend/server.js b/backend/server.js
+index 46e5de3..48b266a 100644
+--- a/backend/server.js
++++ b/backend/server.js
+@@ -45,8 +45,11 @@ app.use(express.urlencoded({ extended: true }));
+ // They are streamed through GET /api/documents/:id/file, which checks
+ // that the logged-in user owns the document.
+ 
+-// Make sure the uploads folder exists (multer will not create it)
+-require('fs').mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
++// Uploaded files live in MongoDB GridFS (utils/fileStore.js), so nothing
++// depends on the server's disk, which hosts like Render wipe on restart.
++
++// Render and similar hosts sit behind a proxy
++app.set('trust proxy', 1);
+ 
+ // ==========================================
+ // ROUTES
+diff --git a/backend/utils/fileStore.js b/backend/utils/fileStore.js
+new file mode 100644
+index 0000000..592010e
+--- /dev/null
++++ b/backend/utils/fileStore.js
+@@ -0,0 +1,53 @@
++// Stores uploaded files in MongoDB (GridFS) instead of the local disk.
++// Hosts like Render wipe the disk on every restart or redeploy, so files
++// saved there would disappear. GridFS keeps them in Atlas with the rest
++// of the data.
++const mongoose = require('mongoose');
++const { Readable } = require('stream');
++
++const BUCKET_NAME = 'uploads';
++
++const getBucket = () => {
++  if (!mongoose.connection.db) {
++    throw new Error('Database is not connected');
++  }
++  return new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
++    bucketName: BUCKET_NAME
++  });
++};
++
++// Save a multer memory-storage file; resolves the new GridFS file id
++const saveFile = (file, { userId } = {}) =>
++  new Promise((resolve, reject) => {
++    const uploadStream = getBucket().openUploadStream(file.originalname, {
++      contentType: file.mimetype,
++      metadata: { user: userId ? String(userId) : undefined }
++    });
++
++    Readable.from(file.buffer)
++      .pipe(uploadStream)
++      .on('error', reject)
++      .on('finish', () => resolve(uploadStream.id));
++  });
++
++const toObjectId = (id) =>
++  id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id));
++
++const fileExists = async (id) => {
++  const files = await getBucket().find({ _id: toObjectId(id) }).limit(1).toArray();
++  return files[0] || null;
++};
++
++const openDownloadStream = (id) => getBucket().openDownloadStream(toObjectId(id));
++
++// Deleting a missing file is not an error
++const deleteFile = async (id) => {
++  if (!id) return;
++  try {
++    await getBucket().delete(toObjectId(id));
++  } catch (error) {
++    if (!/FileNotFound|File not found/i.test(error.message)) throw error;
++  }
++};
++
++module.exports = { saveFile, fileExists, openDownloadStream, deleteFile };
+diff --git a/frontend/vercel.json b/frontend/vercel.json
+new file mode 100644
+index 0000000..de2d01e
+--- /dev/null
++++ b/frontend/vercel.json
+@@ -0,0 +1,10 @@
++{
++  "buildCommand": "CI=false npm run build",
++  "outputDirectory": "build",
++  "rewrites": [
++    {
++      "source": "/(.*)",
++      "destination": "/index.html"
++    }
++  ]
++}
+diff --git a/render.yaml b/render.yaml
+new file mode 100644
+index 0000000..90737a0
+--- /dev/null
++++ b/render.yaml
+@@ -0,0 +1,29 @@
++# Render Blueprint for the Synapse API (backend only).
++# In Render: New > Blueprint > pick this repo. You'll be asked for the
++# values marked `sync: false`; they are never stored in the repo.
++services:
++  - type: web
++    name: synapse-api
++    runtime: node
++    plan: free
++    region: singapore
++    rootDir: backend
++    buildCommand: npm ci
++    startCommand: npm start
++    healthCheckPath: /api/health-check
++    autoDeploy: true
++    envVars:
++      - key: NODE_ENV
++        value: production
++      - key: NODE_VERSION
++        value: "20"
++      - key: JWT_SECRET
++        generateValue: true
++      - key: MONGO_URI
++        sync: false
++      - key: CLIENT_URL
++        sync: false
++      - key: GEMINI_API_KEY
++        sync: false
++      - key: GEMINI_MODEL
++        value: gemini-3.8-flash
+-- 
+2.43.0
+
